@@ -1,0 +1,10 @@
+{
+  "name": "kit-add-to-calendar",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Backend for Kit Add-to-Calendar content-block plugin",
+  "dependencies": {
+    "luxon": "^3.4.4",
+    "uuid": "^9.0.1"
+  }
+}
