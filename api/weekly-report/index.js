@@ -71,7 +71,7 @@ async function generateWeeklyReport() {
 
   // Collect data from the past 12 weeks
   for (let weekOffset = 0; weekOffset < 12; weekOffset++) {
-    const weekStart = now.minus({ weeks: weekOffset + 1 }).startOf('week');
+    const weekStart = now.minus({ weeks: weekOffset }).startOf('week');
     let weekTotal = 0;
     
     // Sum up 7 days for this week
@@ -89,8 +89,9 @@ async function generateWeeklyReport() {
       }
     }
 
-    // Store week data with label
-    const weekLabel = weekStart.toFormat('MMM d');
+    // Store week data with label (use week ending date for clarity)
+    const weekEnd = weekStart.plus({ days: 6 });
+    const weekLabel = weekEnd.toFormat('MMM d');
     weeklyTotals.unshift({ // Add to beginning so most recent is last
       week: weekLabel,
       total: weekTotal,

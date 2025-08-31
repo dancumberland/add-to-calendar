@@ -327,6 +327,28 @@ This workflow will:
 - Check function logs for tracking errors
 - Test calendar creation manually to verify tracking code executes
 
+**Button Alignment Issues in Emails**
+- Buttons appear left-aligned in emails despite being set to "center" in Kit
+- This was fixed in version deployed 08/31/2025 with email-compatible CSS
+- Uses `text-align: center` instead of flexbox for better email client support
+
+**Button Text Not Visible**
+- Button background shows but text doesn't appear
+- Fixed with enhanced CSS including `!important` declarations and WebKit fallbacks
+- Resolved in version deployed 08/31/2025
+
+**Outlook Calendar Links Broken**
+- "Possible broken links" error when testing Outlook URLs
+- Fixed by changing datetime format from ISO to UTC (matches Google Calendar format)  
+- Resolved in version deployed 08/31/2025
+
+**12-Week Trend Chart Not Updating**
+- Weekly email reports showed incorrect dates (e.g., "Jun 2" instead of current 12-week span)
+- Chart displayed weeks from several months ago instead of rolling 12-week window
+- Fixed off-by-one error in date calculation (`weekOffset + 1` → `weekOffset`)
+- Improved week labels to show week ending dates for clarity
+- Resolved in version deployed 08/31/2025
+
 ### Monitoring & Logs
 
 **View Vercel Function Logs**:
