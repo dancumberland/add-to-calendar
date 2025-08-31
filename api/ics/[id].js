@@ -1,19 +1,24 @@
 // /api/ics/[id].js
-// Serves the previously generated ICS text stored in memory.
-// Note: For production-grade persistence you'd store in KV or S3.
-// For demo purposes this relies on the in-memory global map populated by html.js.
+// Serves the previously generated ICS text stored in Vercel KV.
+
+import { kv } from "@vercel/kv";
 
 export default async function handler(req, res) {
   const { id } = req.query;
-  const store = globalThis.ICS_STORE;
-  if (!store || !store.has(id)) {
+  
+  const icsText = await kv.get(id);
+  
+  if (!icsText) {
     return res.status(404).send("ICS not found");
   }
-  const icsText = store.get(id);
+
+  // Clean up the key after retrieval
+  await kv.del(id);
+
   res.setHeader("Content-Type", "text/calendar; charset=utf-8");
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename="invite-${id}.ics"`
+    `attachment; filename="invite.ics"`
   );
   return res.status(200).send(icsText);
 }

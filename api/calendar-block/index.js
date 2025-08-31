@@ -1,8 +1,56 @@
-// Temporary in-memory cache for generated ICS text
-const ICS_STORE = globalThis.ICS_STORE || (globalThis.ICS_STORE = new Map());
-
+import { kv } from "@vercel/kv";
 import { buildIcs } from "../../utils/buildIcs.js";
 import { DateTime } from "luxon";
+
+// Usage tracking functions
+async function trackUsage(data) {
+  try {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const key = `usage:${today}`;
+    
+    // Get existing data or initialize
+    const existing = await kv.get(key) || { count: 0, timezones: {}, eventTypes: {}, withLocation: 0 };
+    
+    // Update daily metrics
+    existing.count++;
+    existing.timezones[data.timezone] = (existing.timezones[data.timezone] || 0) + 1;
+    existing.eventTypes[data.eventType] = (existing.eventTypes[data.eventType] || 0) + 1;
+    if (data.hasLocation) existing.withLocation++;
+    
+    // Store daily data with 30-day expiration
+    await kv.set(key, existing, { ex: 2592000 });
+    
+    // Update total events counter (no expiration)
+    const totalKey = 'usage:total';
+    const totalData = await kv.get(totalKey) || { 
+      totalEvents: 0, 
+      firstEvent: today,
+      allTimeTimezones: {},
+      allTimeEventTypes: {},
+      allTimeWithLocation: 0
+    };
+    
+    totalData.totalEvents++;
+    totalData.allTimeTimezones[data.timezone] = (totalData.allTimeTimezones[data.timezone] || 0) + 1;
+    totalData.allTimeEventTypes[data.eventType] = (totalData.allTimeEventTypes[data.eventType] || 0) + 1;
+    if (data.hasLocation) totalData.allTimeWithLocation++;
+    
+    await kv.set(totalKey, totalData);
+    
+  } catch (error) {
+    console.error('Usage tracking error:', error);
+  }
+}
+
+function inferEventType(title, description) {
+  const text = `${title} ${description}`.toLowerCase();
+  if (text.includes('meeting') || text.includes('call') || text.includes('zoom')) return 'meeting';
+  if (text.includes('appointment') || text.includes('doctor') || text.includes('dentist')) return 'appointment';
+  if (text.includes('birthday') || text.includes('anniversary')) return 'personal';
+  if (text.includes('deadline') || text.includes('due') || text.includes('submit')) return 'deadline';
+  if (text.includes('event') || text.includes('conference') || text.includes('workshop')) return 'event';
+  return 'other';
+}
 
 export default async function handler(req, res) {
   // ---- CORS ----
@@ -67,11 +115,27 @@ export default async function handler(req, res) {
       end: endDateTime.toJSDate(),
     });
 
-    const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
-    ICS_STORE.set(id, icsText);
-
-    const baseUrl = `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}`;
-    const icsUrl = `${baseUrl}/api/ics/${id}`;
+    let icsUrl = "#"; // Default to a safe link
+    try {
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
+      // Store in Vercel KV with a 24-hour expiration (86400 seconds)
+      await kv.set(id, icsText, { ex: 86400 });
+      const baseUrl = `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}`;
+      icsUrl = `${baseUrl}/api/ics/${id}`;
+      
+      // Track usage metrics
+      await trackUsage({
+        timestamp: new Date().toISOString(),
+        timezone: tz,
+        hasLocation: !!location,
+        eventType: inferEventType(title, description)
+      });
+      
+    } catch (kvError) {
+      console.error("Vercel KV Error:", kvError.message);
+      // If KV fails, the Apple link will be a dead link, but the block won't crash.
+      // This is better than the whole plugin failing.
+    }
 
     const formatDateForGoogle = (dt) => dt.toUTC().toFormat("yyyyMMdd'T'HHmmss'Z'");
     const googleUrl = new URL("https://calendar.google.com/calendar/render");
@@ -86,7 +150,7 @@ export default async function handler(req, res) {
     outlookUrl.searchParams.set("rru", "addevent");
     outlookUrl.searchParams.set("subject", title);
     outlookUrl.searchParams.set("body", description);
-    outlookUrl.searchParams.set("location", location);
+    outlookUrl.searchParams.set("location", location || "");
     outlookUrl.searchParams.set("startdt", startDateTime.toISO());
     outlookUrl.searchParams.set("enddt", endDateTime.toISO());
 
@@ -97,13 +161,26 @@ export default async function handler(req, res) {
       large: { padding: "12px 16px", fontSize: "16px" },
     };
 
+    // Use email-compatible alignment methods instead of flexbox
+    const getAlignmentStyles = (align) => {
+      switch (align) {
+        case 'left':
+          return `text-align: left; display: block;`;
+        case 'right':
+          return `text-align: right; display: block;`;
+        case 'center':
+        default:
+          return `text-align: center; display: block;`;
+      }
+    };
+
     const containerStyle = `
-      display: flex;
-      justify-content: ${alignment};
+      ${getAlignmentStyles(alignment)}
       font-family: Helvetica, Arial, sans-serif;
     `;
 
     const buttonStyle = `
+      display: inline-block;
       padding: ${sizeMap[size]?.padding || sizeMap.medium.padding};
       background: ${background_color};
       color: ${text_color};
@@ -111,7 +188,8 @@ export default async function handler(req, res) {
       text-decoration: none;
       font-size: ${sizeMap[size]?.fontSize || sizeMap.medium.fontSize};
       text-align: center;
-      margin: 0 10px; /* Creates 20px space between buttons */
+      margin: 0 5px;
+      vertical-align: top;
     `;
 
     const html = `
