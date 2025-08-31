@@ -151,8 +151,8 @@ export default async function handler(req, res) {
     outlookUrl.searchParams.set("subject", title);
     outlookUrl.searchParams.set("body", description);
     outlookUrl.searchParams.set("location", location || "");
-    outlookUrl.searchParams.set("startdt", startDateTime.toISO());
-    outlookUrl.searchParams.set("enddt", endDateTime.toISO());
+    outlookUrl.searchParams.set("startdt", formatDateForGoogle(startDateTime));
+    outlookUrl.searchParams.set("enddt", formatDateForGoogle(endDateTime));
 
     // --- Button Styling ---
     const sizeMap = {
@@ -182,14 +182,19 @@ export default async function handler(req, res) {
     const buttonStyle = `
       display: inline-block;
       padding: ${sizeMap[size]?.padding || sizeMap.medium.padding};
+      background-color: ${background_color};
       background: ${background_color};
-      color: ${text_color};
+      color: ${text_color} !important;
       border-radius: ${rounded_corners};
       text-decoration: none;
       font-size: ${sizeMap[size]?.fontSize || sizeMap.medium.fontSize};
       text-align: center;
       margin: 0 5px;
       vertical-align: top;
+      font-weight: normal;
+      line-height: 1.2;
+      border: none;
+      -webkit-text-fill-color: ${text_color};
     `;
 
     const html = `
