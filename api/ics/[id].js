@@ -12,8 +12,8 @@ export default async function handler(req, res) {
     return res.status(404).send("ICS not found");
   }
 
-  // Clean up the key after retrieval
-  await kv.del(id);
+  // Don't delete the key - let it expire naturally after 24 hours
+  // This allows multiple accesses for testing and actual use
 
   res.setHeader("Content-Type", "text/calendar; charset=utf-8");
   res.setHeader(
