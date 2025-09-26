@@ -18,6 +18,5 @@ yarn-error.log*
 .vscode/
 .idea/
 .windsurf/
-.claude/
 
 # Test files (cleaned up)

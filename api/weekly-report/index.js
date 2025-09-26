@@ -151,7 +151,7 @@ async function sendEmailReport(email, report) {
         },
         body: JSON.stringify({
           to: email,
-          subject: `Calendar App Weekly Report - ${report.summary.totalEvents} events this week`,
+          subject: `Add-to-Calendar for Kit – Weekly Report`,
           html: emailContent,
           text: generatePlainTextReport(report),
           reportData: report // Raw data for Make.com to use
@@ -182,7 +182,7 @@ async function sendEmailReport(email, report) {
         body: JSON.stringify({
           from: 'Calendar Reports <reports@yourdomain.com>',
           to: [email],
-          subject: `Calendar App Weekly Report - ${report.summary.totalEvents} events this week`,
+          subject: `Add-to-Calendar for Kit – Weekly Report`,
           html: emailContent
         })
       });
@@ -213,7 +213,7 @@ function generatePlainTextReport(report) {
   const trendSign = summary.totalEventsTrend >= 0 ? '+' : '';
 
   return `
-CALENDAR APP WEEKLY REPORT
+Add-to-Calendar for Kit – Weekly Report
 Period: ${period.start} to ${period.end}
 
 THIS WEEK'S SUMMARY:
@@ -256,7 +256,10 @@ function generateEmailHTML(report) {
   return `
     <html>
     <body style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; color: #333;">
-      <h2 style="color: #4285F4;">📅 Kit Weekly Report</h2>
+      <h2 style="color: #4285F4;">
+        <img src="https://kit-app-build.vercel.app/app_icon.png" alt="App Icon" width="32" height="32" style="vertical-align: middle; margin-right: 10px;">
+        Add-to-Calendar for Kit – Weekly Report
+      </h2>
       <p style="color: #666;">Period: ${period.start} to ${period.end}</p>
       
       <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -292,7 +295,7 @@ function generateEmailHTML(report) {
       
       <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
       <p style="color: #666; font-size: 12px;">
-        This is an automated report from Kit. 
+        This is an automated report from Add-to-Calendar for Kit.
         <br>Generated on ${new Date().toISOString().split('T')[0]}
       </p>
     </body>
