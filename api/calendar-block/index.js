@@ -2,6 +2,49 @@ import { kv } from "@vercel/kv";
 import { buildIcs } from "../../utils/buildIcs.js";
 import { DateTime } from "luxon";
 
+// Timezone mapping: Convert Kit's timezone format to IANA timezone identifiers
+function mapTimezoneToIANA(kitTimezone) {
+  // If it's already in IANA format, return as-is
+  if (kitTimezone && kitTimezone.includes('/')) {
+    return kitTimezone;
+  }
+  
+  // Map common Kit timezone formats to IANA identifiers
+  const timezoneMap = {
+    'Pacific Time (GMT-08:00)': 'America/Los_Angeles',
+    'Mountain Time (GMT-07:00)': 'America/Denver',
+    'Central Time (GMT-06:00)': 'America/Chicago',
+    'Eastern Time (GMT-05:00)': 'America/New_York',
+    'Alaska Time (GMT-09:00)': 'America/Anchorage',
+    'Hawaii Time (GMT-10:00)': 'Pacific/Honolulu',
+    'GMT': 'UTC',
+    'UTC': 'UTC',
+    'London (GMT+00:00)': 'Europe/London',
+    'Paris (GMT+01:00)': 'Europe/Paris',
+    'Berlin (GMT+01:00)': 'Europe/Berlin',
+    'Tokyo (GMT+09:00)': 'Asia/Tokyo',
+    'Sydney (GMT+10:00)': 'Australia/Sydney',
+    'Auckland (GMT+12:00)': 'Pacific/Auckland',
+  };
+  
+  // Try exact match first
+  if (timezoneMap[kitTimezone]) {
+    return timezoneMap[kitTimezone];
+  }
+  
+  // Try to extract timezone from format like "Pacific Time (GMT-08:00)"
+  // and match against partial strings
+  for (const [key, value] of Object.entries(timezoneMap)) {
+    if (kitTimezone.includes(key.split(' ')[0])) {
+      return value;
+    }
+  }
+  
+  // Default to UTC if we can't map it
+  console.warn(`Unknown timezone format: ${kitTimezone}, defaulting to UTC`);
+  return 'UTC';
+}
+
 // Usage tracking functions
 async function trackUsage(data) {
   try {
@@ -62,6 +105,14 @@ export default async function handler(req, res) {
   }
   res.setHeader("Access-Control-Allow-Origin", "*");
 
+  // ===== DIAGNOSTIC LOGGING: REQUEST METADATA =====
+  console.log('🔍 TIMEZONE DEBUG - Request metadata:');
+  console.log('  Method:', req.method);
+  console.log('  User-Agent:', req.headers['user-agent']);
+  console.log('  Origin:', req.headers['origin']);
+  console.log('  Referer:', req.headers['referer']);
+  console.log('  Request timestamp:', new Date().toISOString());
+
   try {
     const settings = req.method === "POST" ? req.body?.settings || {} : req.query;
     const { 
@@ -92,19 +143,56 @@ export default async function handler(req, res) {
       return res.status(200).json({ code: 200, html: placeholderHtml });
     }
 
-    // The date picker returns a full ISO string in UTC. We just need the date part.
-    const datePart = DateTime.fromISO(dateISO, { zone: 'utc' }).toISODate();
+    // ===== DIAGNOSTIC LOGGING: TIMEZONE ISSUE INVESTIGATION =====
+    console.log('🔍 TIMEZONE DEBUG - Input from Kit:');
+    console.log('  dateISO:', dateISO);
+    console.log('  dateISO type:', typeof dateISO);
+    console.log('  dateISO raw value:', JSON.stringify(dateISO));
+    console.log('  start_time:', start_time, start_ampm);
+    console.log('  end_time:', end_time, end_ampm);
+    console.log('  timezone (raw):', tz);
+    console.log('  title:', title);
+    console.log('  alignment:', alignment);
+    console.log('  Full settings object:', JSON.stringify(settings, null, 2));
+
+    // Map Kit's timezone format to IANA format that Luxon understands
+    const ianaTimezone = mapTimezoneToIANA(tz);
+    console.log('  timezone (mapped to IANA):', ianaTimezone);
+
+    // The date picker returns a full ISO string. Parse it in the target timezone to get the correct date.
+    // This handles cases where the user's system timezone differs from the event timezone.
+    const datePart = DateTime.fromISO(dateISO, { zone: ianaTimezone }).toISODate();
+    
+    console.log('🔍 TIMEZONE DEBUG - Date parsing:');
+    console.log('  datePart (parsed in target TZ):', datePart);
+    console.log('  Original dateISO parsed as UTC:', DateTime.fromISO(dateISO, { zone: 'utc' }).toString());
+    console.log('  Original dateISO parsed in target TZ:', DateTime.fromISO(dateISO, { zone: tz }).toString());
+    console.log('  Comparison - UTC date:', DateTime.fromISO(dateISO, { zone: 'utc' }).toISODate(), 'vs Target TZ date:', datePart);
 
     // Construct a parseable 12-hour format string
     const fullStartString = `${datePart} ${start_time} ${start_ampm}`;
     const fullEndString = `${datePart} ${end_time} ${end_ampm}`;
+    
+    console.log('🔍 TIMEZONE DEBUG - String construction:');
+    console.log('  fullStartString:', fullStartString);
+    console.log('  fullEndString:', fullEndString);
 
     // Parse the strings into Luxon DateTime objects using the specified timezone
-    const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd hh:mm a', { zone: tz });
-    const endDateTime = DateTime.fromFormat(fullEndString, 'yyyy-MM-dd hh:mm a', { zone: tz });
+    const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd hh:mm a', { zone: ianaTimezone });
+    const endDateTime = DateTime.fromFormat(fullEndString, 'yyyy-MM-dd hh:mm a', { zone: ianaTimezone });
+    
+    console.log('🔍 TIMEZONE DEBUG - Luxon DateTime objects:');
+    console.log('  startDateTime:', startDateTime.toString());
+    console.log('  startDateTime (ISO):', startDateTime.toISO());
+    console.log('  startDateTime (UTC):', startDateTime.toUTC().toString());
+    console.log('  startDateTime.isValid:', startDateTime.isValid);
+    console.log('  endDateTime:', endDateTime.toString());
+    console.log('  endDateTime (ISO):', endDateTime.toISO());
+    console.log('  endDateTime (UTC):', endDateTime.toUTC().toString());
+    console.log('  endDateTime.isValid:', endDateTime.isValid);
 
     if (!startDateTime.isValid || !endDateTime.isValid) {
-      throw new Error(`Invalid date/time. Received: date='${dateISO}', start='${start_time} ${start_ampm}', end='${end_time} ${end_ampm}', tz='${tz}'`);
+      throw new Error(`Invalid date/time. Received: date='${dateISO}', start='${start_time} ${start_ampm}', end='${end_time} ${end_ampm}', tz='${tz}' (mapped to '${ianaTimezone}')`);
     }
 
     const icsText = buildIcs({
@@ -138,12 +226,19 @@ export default async function handler(req, res) {
     }
 
     const formatDateForGoogle = (dt) => dt.toUTC().toFormat("yyyyMMdd'T'HHmmss'Z'");
+    
+    console.log('🔍 TIMEZONE DEBUG - URL generation:');
+    console.log('  Google start (UTC):', formatDateForGoogle(startDateTime));
+    console.log('  Google end (UTC):', formatDateForGoogle(endDateTime));
+    
     const googleUrl = new URL("https://calendar.google.com/calendar/render");
     googleUrl.searchParams.set("action", "TEMPLATE");
     googleUrl.searchParams.set("text", title);
     googleUrl.searchParams.set("details", description);
     googleUrl.searchParams.set("location", location);
     googleUrl.searchParams.set("dates", `${formatDateForGoogle(startDateTime)}/${formatDateForGoogle(endDateTime)}`);
+    
+    console.log('  Google Calendar URL:', googleUrl.toString());
 
     const outlookUrl = new URL("https://outlook.live.com/owa/");
     outlookUrl.searchParams.set("path", "/calendar/action/compose");
@@ -153,6 +248,11 @@ export default async function handler(req, res) {
     outlookUrl.searchParams.set("location", location || "");
     outlookUrl.searchParams.set("startdt", formatDateForGoogle(startDateTime));
     outlookUrl.searchParams.set("enddt", formatDateForGoogle(endDateTime));
+    
+    console.log('  Outlook URL:', outlookUrl.toString());
+    console.log('  ICS URL:', icsUrl);
+    console.log('🔍 TIMEZONE DEBUG - End of diagnostic logging');
+    console.log('==========================================');
 
     // --- Button Styling ---
     const sizeMap = {
@@ -162,17 +262,28 @@ export default async function handler(req, res) {
     };
 
     // Use email-compatible alignment methods instead of flexbox
+    // Kit sends flex values (flex-start, center, flex-end) so we need to map them
     const getAlignmentStyles = (align) => {
       switch (align) {
         case 'left':
+        case 'flex-start':
           return `text-align: left; display: block;`;
         case 'right':
+        case 'flex-end':
           return `text-align: right; display: block;`;
         case 'center':
         default:
           return `text-align: center; display: block;`;
       }
     };
+
+    console.log('🔍 ALIGNMENT DEBUG:');
+    console.log('  alignment value:', alignment);
+    console.log('  alignment type:', typeof alignment);
+    console.log('  alignment is undefined?:', alignment === undefined);
+    console.log('  alignment is empty string?:', alignment === '');
+    console.log('  Raw alignment from settings:', settings.alignment);
+    console.log('  getAlignmentStyles output:', getAlignmentStyles(alignment));
 
     const containerStyle = `
       ${getAlignmentStyles(alignment)}
@@ -197,12 +308,43 @@ export default async function handler(req, res) {
       -webkit-text-fill-color: ${text_color};
     `;
 
+    // Use table-based layout for better email client compatibility
+    // Tables are the most reliable way to control alignment in emails
+    // Kit sends flex values (flex-start, center, flex-end) so we need to map them
+    const getTableAlign = (align) => {
+      switch (align) {
+        case 'left':
+        case 'flex-start':
+          return 'left';
+        case 'right':
+        case 'flex-end':
+          return 'right';
+        case 'center':
+        default:
+          return 'center';
+      }
+    };
+
     const html = `
-      <div style="${containerStyle}">
-        <a href="${googleUrl}" style="${buttonStyle}">Google</a>
-        <a href="${icsUrl}" download="invite.ics" style="${buttonStyle}">Apple</a>
-        <a href="${outlookUrl}" style="${buttonStyle}">Outlook</a>
-      </div>
+      <table width="100%" border="0" cellpadding="0" cellspacing="0" style="font-family: Helvetica, Arial, sans-serif;">
+        <tr>
+          <td align="${getTableAlign(alignment)}" style="padding: 0;">
+            <table border="0" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="padding: 0 5px;">
+                  <a href="${googleUrl}" style="${buttonStyle}">Google</a>
+                </td>
+                <td style="padding: 0 5px;">
+                  <a href="${icsUrl}" download="invite.ics" style="${buttonStyle}">Apple</a>
+                </td>
+                <td style="padding: 0 5px;">
+                  <a href="${outlookUrl}" style="${buttonStyle}">Outlook</a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
     `;
 
     res.setHeader("Content-Type", "application/json");
