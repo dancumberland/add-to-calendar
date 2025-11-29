@@ -71,4 +71,64 @@ Kit_App_Build/
 - Internationalised time-zone picker.
 
 ---
-**Status:** _Initial skeleton committed – 2025-07-09_
+
+## 3. Analytics Layer (Added 2025-11-29)
+
+Tracks usage metrics and generates weekly email reports. See [sessions/251129.1315-Email-Report-Fix.md](./sessions/251129.1315-Email-Report-Fix.md) for implementation details.
+
+### 3.1 Data Model
+
+**Daily Counters** (`usage:daily:YYYY-MM-DD`, 30-day TTL):
+- `count`: Total events created that day
+- `timezones`: Breakdown by timezone (e.g., `{"America/New_York": 5}`)
+- `eventTypes`: Breakdown by inferred type (meeting, appointment, etc.)
+- `withLocation`: Count of events that included a location
+
+**Weekly Aggregates** (`usage:weekly:YYYY-MM-DD`, 365-day TTL):
+- Sums of daily data for entire week
+- Locked in once per week via `aggregateWeeklyData()`
+- Persistent historical record (1 year retention)
+
+**All-Time Total** (`usage:total`, no expiration):
+- `totalEvents`: Sum of all events ever created
+- `allTimeTimezones`: Aggregate timezone usage (all-time)
+- `allTimeEventTypes`: Aggregate event type usage (all-time)
+- `firstEvent`: Date of first tracked event
+- `lastEventDate`: Date of most recent event
+
+### 3.2 Weekly Report Generation
+
+**Flow**:
+1. Cron job or manual trigger calls `POST /api/weekly-report`
+2. Handler calls `aggregateWeeklyData()` to lock in last week's totals
+3. `getTwelveWeekTrend()` retrieves 12 weeks of data (prefers aggregates, falls back to daily math)
+4. Email generated with 12-week chart + trend indicators
+5. Sent via Make.com webhook or Resend.com API
+
+**Report Contents**:
+- This week's event count
+- Week-over-week % change (↗️ up, ↘️ down, ➡️ flat)
+- 12-week trend chart (bars for each week, current week highlighted)
+- All-time total events created
+
+### 3.3 Files Added/Modified
+
+**New**:
+- `utils/analytics.js` – Centralized analytics module (tracking, aggregation, reporting)
+- `sessions/` – Session documentation structure
+
+**Modified**:
+- `api/calendar-block/index.js` – Now calls `trackDailyUsage()` instead of inline `trackUsage()`
+- `api/weekly-report/index.js` – Refactored to use analytics functions
+
+## Nice-to-Have Enhancements (future)
+- Dashboard to view real-time metrics and historical trends
+- Data reconciliation for missed weeks
+- Export usage data as CSV for analysis
+- Alert on failed weekly aggregations
+- Backfill historical data from Vercel logs if needed
+
+---
+**Status:** 
+- _Initial skeleton committed – 2025-07-09_
+- _Analytics layer added – 2025-11-29_ (See [sessions/](./sessions/) for details)

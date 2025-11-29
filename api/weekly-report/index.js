@@ -1,5 +1,5 @@
-import { kv } from "@vercel/kv";
 import { DateTime } from "luxon";
+import { getTwelveWeekTrend, getAllTimeStats, aggregateWeeklyData } from "../../utils/analytics.js";
 
 export default async function handler(req, res) {
   // Handle both POST requests (manual) and GET requests (cron)
@@ -17,12 +17,17 @@ export default async function handler(req, res) {
     }
     
     try {
+      // Aggregate last week's data before generating report
+      const aggregateResult = await aggregateWeeklyData();
+      console.log('Weekly aggregation:', aggregateResult);
+      
       const report = await generateWeeklyReport();
       await sendEmailReport(email, report);
       
       return res.status(200).json({ 
         success: true, 
         message: 'Weekly report sent successfully via cron',
+        aggregation: aggregateResult,
         stats: report.summary 
       });
     } catch (error) {
@@ -47,12 +52,17 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Aggregate last week's data before generating report
+    const aggregateResult = await aggregateWeeklyData();
+    console.log('Weekly aggregation:', aggregateResult);
+    
     const report = await generateWeeklyReport();
     await sendEmailReport(email, report);
     
     res.status(200).json({ 
       success: true, 
       message: 'Weekly report sent successfully',
+      aggregation: aggregateResult,
       stats: report.summary 
     });
   } catch (error) {
@@ -63,53 +73,12 @@ export default async function handler(req, res) {
 
 async function generateWeeklyReport() {
   const now = DateTime.now();
-  const twelveWeeksAgo = now.minus({ weeks: 12 });
-
-  let weeklyTotals = [];
-  let thisWeekTotal = 0;
-  let lastWeekTotal = 0;
-
-  // Collect data from the past 12 weeks
-  for (let weekOffset = 0; weekOffset < 12; weekOffset++) {
-    const weekStart = now.minus({ weeks: weekOffset }).startOf('week');
-    let weekTotal = 0;
-    
-    // Sum up 7 days for this week
-    for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
-      const date = weekStart.plus({ days: dayOffset }).toISODate();
-      const key = `usage:${date}`;
-      
-      try {
-        const dayData = await kv.get(key);
-        if (dayData && dayData.count) {
-          weekTotal += dayData.count;
-        }
-      } catch (error) {
-        console.error(`Error fetching data for ${date}:`, error);
-      }
-    }
-
-    // Store week data with label (use week ending date for clarity)
-    const weekEnd = weekStart.plus({ days: 6 });
-    const weekLabel = weekEnd.toFormat('MMM d');
-    weeklyTotals.unshift({ // Add to beginning so most recent is last
-      week: weekLabel,
-      total: weekTotal,
-      weekStart: weekStart.toISODate()
-    });
-
-    // Track current and previous week for trend calculation
-    if (weekOffset === 0) {
-      thisWeekTotal = weekTotal;
-    } else if (weekOffset === 1) {
-      lastWeekTotal = weekTotal;
-    }
-  }
-
-  // Get all-time total events
-  const allTimeEvents = (await kv.get('usage:total'))?.totalEvents || 0;
+  const trendData = await getTwelveWeekTrend();
+  const allTimeData = await getAllTimeStats();
 
   // Calculate WoW trend for total events
+  const lastWeekTotal = trendData.lastWeekTotal;
+  const thisWeekTotal = trendData.thisWeekTotal;
   const totalEventsTrend = lastWeekTotal > 0 
     ? Math.round(((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100) 
     : (thisWeekTotal > 0 ? 100 : 0);
@@ -132,9 +101,9 @@ async function generateWeeklyReport() {
       trendIndicator: getTrendIndicator(totalEventsTrend),
     },
     allTime: {
-      totalEvents: allTimeEvents,
+      totalEvents: allTimeData.totalEvents,
     },
-    weeklyTotals,
+    weeklyTotals: trendData.weeklyTotals,
   };
 }
 

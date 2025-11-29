@@ -1,8 +1,8 @@
 import { kv } from "@vercel/kv";
 import { buildIcs } from "../../utils/buildIcs.js";
+import { trackDailyUsage } from "../../utils/analytics.js";
 import { DateTime } from "luxon";
 
-// Timezone mapping: Convert Kit's timezone format to IANA timezone identifiers
 function mapTimezoneToIANA(kitTimezone) {
   // If it's already in IANA format, return as-is
   if (kitTimezone && kitTimezone.includes('/')) {
@@ -50,43 +50,6 @@ async function trackUsage(data) {
   try {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const key = `usage:${today}`;
-    
-    // Get existing data or initialize
-    const existing = await kv.get(key) || { count: 0, timezones: {}, eventTypes: {}, withLocation: 0 };
-    
-    // Update daily metrics
-    existing.count++;
-    existing.timezones[data.timezone] = (existing.timezones[data.timezone] || 0) + 1;
-    existing.eventTypes[data.eventType] = (existing.eventTypes[data.eventType] || 0) + 1;
-    if (data.hasLocation) existing.withLocation++;
-    
-    // Store daily data with 30-day expiration
-    await kv.set(key, existing, { ex: 2592000 });
-    
-    // Update total events counter (no expiration)
-    const totalKey = 'usage:total';
-    const totalData = await kv.get(totalKey) || { 
-      totalEvents: 0, 
-      firstEvent: today,
-      allTimeTimezones: {},
-      allTimeEventTypes: {},
-      allTimeWithLocation: 0
-    };
-    
-    totalData.totalEvents++;
-    totalData.allTimeTimezones[data.timezone] = (totalData.allTimeTimezones[data.timezone] || 0) + 1;
-    totalData.allTimeEventTypes[data.eventType] = (totalData.allTimeEventTypes[data.eventType] || 0) + 1;
-    if (data.hasLocation) totalData.allTimeWithLocation++;
-    
-    await kv.set(totalKey, totalData);
-    
-  } catch (error) {
-    console.error('Usage tracking error:', error);
-  }
-}
-
-function inferEventType(title, description) {
-  const text = `${title} ${description}`.toLowerCase();
   if (text.includes('meeting') || text.includes('call') || text.includes('zoom')) return 'meeting';
   if (text.includes('appointment') || text.includes('doctor') || text.includes('dentist')) return 'appointment';
   if (text.includes('birthday') || text.includes('anniversary')) return 'personal';
@@ -212,7 +175,7 @@ export default async function handler(req, res) {
       icsUrl = `${baseUrl}/api/ics/${id}`;
       
       // Track usage metrics
-      await trackUsage({
+      await trackDailyUsage({
         timestamp: new Date().toISOString(),
         timezone: tz,
         hasLocation: !!location,
@@ -240,7 +203,8 @@ export default async function handler(req, res) {
     
     console.log('  Google Calendar URL:', googleUrl.toString());
 
-    const outlookUrl = new URL("https://outlook.live.com/owa/");
+    // Modern Outlook URL format (deeplink, not the old /owa/ endpoint)
+    const outlookUrl = new URL("https://outlook.live.com/calendar/deeplink/compose");
     outlookUrl.searchParams.set("path", "/calendar/action/compose");
     outlookUrl.searchParams.set("rru", "addevent");
     outlookUrl.searchParams.set("subject", title);
