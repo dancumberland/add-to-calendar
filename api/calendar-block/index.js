@@ -45,11 +45,9 @@ function mapTimezoneToIANA(kitTimezone) {
   return 'UTC';
 }
 
-// Usage tracking functions
-async function trackUsage(data) {
-  try {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const key = `usage:${today}`;
+// Infer event type from title/description for analytics
+function inferEventType(title, description = '') {
+  const text = `${title} ${description}`.toLowerCase();
   if (text.includes('meeting') || text.includes('call') || text.includes('zoom')) return 'meeting';
   if (text.includes('appointment') || text.includes('doctor') || text.includes('dentist')) return 'appointment';
   if (text.includes('birthday') || text.includes('anniversary')) return 'personal';
