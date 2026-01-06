@@ -84,7 +84,9 @@ function runTest(testCase) {
 
   try {
     const ianaTimezone = mapTimezoneToIANA(settings.tz);
-    const datePart = DateTime.fromISO(settings.date, { zone: ianaTimezone }).toISODate();
+    // Extract date directly from ISO string to preserve user's selected date
+    // (matches the fix in calendar-block/index.js)
+    const datePart = settings.date.split('T')[0];
 
     const fullStartString = `${datePart} ${settings.start_time} ${settings.start_ampm}`;
     const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd hh:mm a', { zone: ianaTimezone });
@@ -179,11 +181,14 @@ async function testKvConnection() {
 }
 
 export default async function handler(req, res) {
-  // Verify secret for security
+  // Verify secret for security (allow Vercel cron jobs through)
   const secret = req.headers['x-test-secret'] || req.query.secret;
   const expectedSecret = process.env.WEEKLY_REPORT_SECRET;
+  const isVercelCron = req.headers['x-vercel-cron'] === '1';
+  const hasCronSecret = req.headers['authorization'] === `Bearer ${process.env.CRON_SECRET}`;
 
-  if (expectedSecret && secret !== expectedSecret) {
+  // Allow if: valid secret provided, OR Vercel cron job, OR CRON_SECRET matches
+  if (expectedSecret && !isVercelCron && !hasCronSecret && secret !== expectedSecret) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
