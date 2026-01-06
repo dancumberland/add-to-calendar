@@ -10,6 +10,7 @@
     "uuid": "^9.0.1"
   },
   "scripts": {
-    "send-weekly-report": "node scripts/send-weekly-report.js"
+    "send-weekly-report": "node scripts/send-weekly-report.js",
+    "test-calendars": "node scripts/test-calendar-integrations.js"
   }
 }

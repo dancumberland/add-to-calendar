@@ -120,9 +120,11 @@ export default async function handler(req, res) {
     const ianaTimezone = mapTimezoneToIANA(tz);
     console.log('  timezone (mapped to IANA):', ianaTimezone);
 
-    // The date picker returns a full ISO string. Parse it in the target timezone to get the correct date.
-    // This handles cases where the user's system timezone differs from the event timezone.
-    const datePart = DateTime.fromISO(dateISO, { zone: ianaTimezone }).toISODate();
+    // The date picker returns a full ISO string like "2025-02-15T00:00:00.000Z"
+    // We extract just the date portion directly to preserve the user's selected date.
+    // Previously we parsed in target timezone, but this caused dates to shift back one day
+    // for western timezones (e.g., midnight UTC on Feb 15 = 4 PM on Feb 14 in Pacific).
+    const datePart = dateISO.split('T')[0];
     
     console.log('🔍 TIMEZONE DEBUG - Date parsing:');
     console.log('  datePart (parsed in target TZ):', datePart);
@@ -187,10 +189,14 @@ export default async function handler(req, res) {
     }
 
     const formatDateForGoogle = (dt) => dt.toUTC().toFormat("yyyyMMdd'T'HHmmss'Z'");
-    
+    // Outlook requires proper ISO 8601 with separators: 2025-01-28T18:00:00Z
+    const formatDateForOutlook = (dt) => dt.toUTC().toISO({ suppressMilliseconds: true });
+
     console.log('🔍 TIMEZONE DEBUG - URL generation:');
     console.log('  Google start (UTC):', formatDateForGoogle(startDateTime));
     console.log('  Google end (UTC):', formatDateForGoogle(endDateTime));
+    console.log('  Outlook start (ISO 8601):', formatDateForOutlook(startDateTime));
+    console.log('  Outlook end (ISO 8601):', formatDateForOutlook(endDateTime));
     
     const googleUrl = new URL("https://calendar.google.com/calendar/render");
     googleUrl.searchParams.set("action", "TEMPLATE");
@@ -202,16 +208,28 @@ export default async function handler(req, res) {
     console.log('  Google Calendar URL:', googleUrl.toString());
 
     // Modern Outlook URL format (deeplink, not the old /owa/ endpoint)
+    // Using proper ISO 8601 format for dates (YYYY-MM-DDTHH:mm:ssZ)
     const outlookUrl = new URL("https://outlook.live.com/calendar/deeplink/compose");
     outlookUrl.searchParams.set("path", "/calendar/action/compose");
     outlookUrl.searchParams.set("rru", "addevent");
     outlookUrl.searchParams.set("subject", title);
     outlookUrl.searchParams.set("body", description);
     outlookUrl.searchParams.set("location", location || "");
-    outlookUrl.searchParams.set("startdt", formatDateForGoogle(startDateTime));
-    outlookUrl.searchParams.set("enddt", formatDateForGoogle(endDateTime));
-    
+    outlookUrl.searchParams.set("startdt", formatDateForOutlook(startDateTime));
+    outlookUrl.searchParams.set("enddt", formatDateForOutlook(endDateTime));
+
+    // Office 365 URL for enterprise/work accounts (same format, different domain)
+    const office365Url = new URL("https://outlook.office.com/calendar/deeplink/compose");
+    office365Url.searchParams.set("path", "/calendar/action/compose");
+    office365Url.searchParams.set("rru", "addevent");
+    office365Url.searchParams.set("subject", title);
+    office365Url.searchParams.set("body", description);
+    office365Url.searchParams.set("location", location || "");
+    office365Url.searchParams.set("startdt", formatDateForOutlook(startDateTime));
+    office365Url.searchParams.set("enddt", formatDateForOutlook(endDateTime));
+
     console.log('  Outlook URL:', outlookUrl.toString());
+    console.log('  Office 365 URL:', office365Url.toString());
     console.log('  ICS URL:', icsUrl);
     console.log('🔍 TIMEZONE DEBUG - End of diagnostic logging');
     console.log('==========================================');
@@ -297,10 +315,13 @@ export default async function handler(req, res) {
                   <a href="${googleUrl}" style="${buttonStyle}">Google</a>
                 </td>
                 <td style="padding: 0 5px;">
-                  <a href="${icsUrl}" download="invite.ics" style="${buttonStyle}">Apple</a>
+                  <a href="${icsUrl}" style="${buttonStyle}">Apple</a>
                 </td>
                 <td style="padding: 0 5px;">
                   <a href="${outlookUrl}" style="${buttonStyle}">Outlook</a>
+                </td>
+                <td style="padding: 0 5px;">
+                  <a href="${office365Url}" style="${buttonStyle}">Office 365</a>
                 </td>
               </tr>
             </table>
