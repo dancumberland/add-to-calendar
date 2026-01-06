@@ -1,35 +1,47 @@
 # Project Backlog
 
-**Last Updated**: 2025-11-29 13:50  
-**Session Context**: See [sessions/SESSION-INDEX.md](./sessions/SESSION-INDEX.md)
+**Last Updated**: 2026-01-06 15:55
+**Session Context**: See [.claude/INDEX.md](../.claude/INDEX.md)
 
 ---
 
 ## NEXT (This or Next Session)
 
-### Verify Weekly Analytics Aggregation
-**Priority**: CRITICAL
-**Estimated Effort**: 1-2 hours
-**Status**: Ready to start
+### Monitor Automated Calendar Tests
+**Priority**: HIGH
+**Estimated Effort**: 15 min
+**Status**: Ready (runs Monday 12:00 UTC)
 
-Confirm that the new weekly aggregation system is working correctly and producing accurate email reports.
+Verify the weekly automated calendar integration tests are running and alerting correctly.
 
 **Deliverables**:
-- Verify next weekly email (Dec 5) shows full 12-week trend with no zeros
+- Confirm first automated test runs successfully (next Monday)
+- Check email alert system triggers on failure
+- Review test results in Vercel logs
+
+**Dependencies**:
+- ✅ Test endpoint created (api/test-calendars)
+- ✅ Weekly cron configured (Mondays 12:00 UTC)
+- ✅ Tests verified passing locally
+
+---
+
+### Verify Weekly Analytics Aggregation
+**Priority**: MEDIUM
+**Estimated Effort**: 1-2 hours
+**Status**: Ongoing monitoring
+
+Confirm that the weekly aggregation system is working correctly and producing accurate email reports.
+
+**Deliverables**:
+- Verify weekly email shows full 12-week trend with no zeros
 - Check all-time total matches sum of weekly aggregates
 - Validate Week-over-week calculations are accurate
-- Monitor Vercel logs for any aggregation errors
 
 **Dependencies**:
 - ✅ Weekly aggregates implemented (analytics.js complete)
 - ✅ Email report updated to use aggregates
-- ❌ First aggregation run (will happen Dec 1 at week boundary)
-
-**Test Checklist**:
-- [ ] Manual report generation: `POST /api/weekly-report` works
-- [ ] Cron trigger runs: `GET /api/weekly-report` executes
-- [ ] Next email contains all 12 weeks of data
-- [ ] Historical gap (Sep-Oct) is now populated
+- ✅ Aggregation running since Dec 2025
 
 ---
 
@@ -104,16 +116,27 @@ If Vercel logs contain old daily data, implement backfill for Sep-Oct 2025 to po
 
 ---
 
-## Completed (This Session - Nov 29)
+## Completed (Jan 6, 2026)
 
-✅ Implemented Option B: persistent weekly aggregates with 365-day TTL  
-✅ Created utils/analytics.js centralized module  
-✅ Updated calendar-block API to use trackDailyUsage()  
-✅ Updated weekly-report API to use analytics functions  
-✅ Created session documentation (SESSION-INDEX.md)  
-✅ Renamed all session files to protocol: YYMMDD.HHMM-Name.md  
-✅ Cleaned up workspace (removed unnecessary files)  
-✅ Updated architecture.md with analytics layer  
+✅ Fixed Outlook date format (ISO 8601 with separators)
+✅ Fixed timezone date-shift bug (dates showing one day early)
+✅ Added Office 365 button for enterprise users
+✅ Removed problematic iCal download attribute
+✅ Created automated test endpoint (api/test-calendars)
+✅ Added weekly test cron job (Mondays 12:00 UTC)
+✅ Created test script with email alerts (npm run test-calendars)
+✅ Verified all calendar URLs working correctly
+
+## Completed (Nov 29, 2025)
+
+✅ Implemented Option B: persistent weekly aggregates with 365-day TTL
+✅ Created utils/analytics.js centralized module
+✅ Updated calendar-block API to use trackDailyUsage()
+✅ Updated weekly-report API to use analytics functions
+✅ Created session documentation (SESSION-INDEX.md)
+✅ Renamed all session files to protocol: YYMMDD.HHMM-Name.md
+✅ Cleaned up workspace (removed unnecessary files)
+✅ Updated architecture.md with analytics layer
 ✅ Pushed all changes to GitHub  
 
 ---
