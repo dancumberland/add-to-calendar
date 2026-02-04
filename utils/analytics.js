@@ -1,13 +1,24 @@
 // ABOUTME: Analytics tracking and aggregation for usage metrics
 // ABOUTME: Stores daily metrics (short-lived) and weekly aggregates (persistent)
+//
+// TIMEZONE DESIGN DECISION:
+// All analytics use UTC for consistency. This means:
+// - Daily counts are based on UTC days, not user local days
+// - A user in Brisbane creating an event at 8 AM local (Feb 5) will be counted
+//   under Feb 4 UTC if it's before 10 AM Brisbane time (midnight UTC)
+// - This is intentional: server-side analytics should use consistent UTC time
+//   to avoid DST issues and enable accurate global aggregation
+// - User timezone is stored as metadata for detailed breakdowns if needed
 
 import { kv } from "@vercel/kv";
 import { DateTime } from "luxon";
 
 // Track daily usage with event details
+// Note: Uses UTC for daily bucketing (see design decision above)
 export async function trackDailyUsage(data) {
   try {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    // Use UTC date for consistent global analytics
+    const today = DateTime.utc().toISODate(); // YYYY-MM-DD in UTC
     const key = `usage:daily:${today}`;
 
     // Get existing data or initialize
@@ -53,10 +64,13 @@ export async function trackDailyUsage(data) {
 
 // Aggregate daily data into weekly totals
 // Call this at end of week to lock in historical data
+// Note: Uses UTC for week boundaries (see design decision at top of file)
 export async function aggregateWeeklyData(targetDate = null) {
   try {
-    // Use provided date or today
-    const now = DateTime.fromISO(targetDate || new Date().toISOString().split('T')[0]);
+    // Use provided date or today (in UTC for consistency)
+    const now = targetDate
+      ? DateTime.fromISO(targetDate, { zone: 'utc' })
+      : DateTime.utc();
 
     // Get the week ending date (Sunday)
     const weekEnd = now.endOf('week');
@@ -130,9 +144,10 @@ export async function aggregateWeeklyData(targetDate = null) {
 
 // Get 12-week trend data
 // Prefers weekly aggregates (persistent) over daily data (expiring)
+// Note: Uses UTC for week boundaries (see design decision at top of file)
 export async function getTwelveWeekTrend() {
   try {
-    const now = DateTime.now();
+    const now = DateTime.utc();
     let weeklyTotals = [];
     let thisWeekTotal = 0;
     let lastWeekTotal = 0;

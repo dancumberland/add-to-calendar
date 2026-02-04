@@ -9,10 +9,12 @@ import { DateTime } from "luxon";
 // Test cases covering different scenarios
 const TEST_CASES = [
   {
-    name: "Basic event - Pacific timezone",
+    name: "Basic event - Pacific timezone (browser sends midnight Pacific as UTC)",
+    // User in Pacific selects Feb 15. Browser sends midnight Pacific as UTC:
+    // Feb 15 00:00 Pacific (PST = UTC-8) = Feb 15 08:00 UTC
     settings: {
       title: "Test Event",
-      date: "2025-02-15T00:00:00.000Z",
+      date: "2025-02-15T08:00:00.000Z", // This is Feb 15 midnight in Pacific!
       start_time: "10:00",
       start_ampm: "AM",
       end_time: "11:00",
@@ -27,10 +29,12 @@ const TEST_CASES = [
     }
   },
   {
-    name: "PM event - Eastern timezone",
+    name: "PM event - Eastern timezone (browser sends midnight Eastern as UTC)",
+    // User in Eastern selects Mar 20. Browser sends midnight Eastern as UTC:
+    // Mar 20 00:00 Eastern (EDT = UTC-4, DST active in March) = Mar 20 04:00 UTC
     settings: {
       title: "Afternoon Call",
-      date: "2025-03-20T00:00:00.000Z",
+      date: "2025-03-20T04:00:00.000Z", // This is Mar 20 midnight in Eastern during DST!
       start_time: "02:30",
       start_ampm: "PM",
       end_time: "03:30",
@@ -61,6 +65,131 @@ const TEST_CASES = [
       googleDateStart: "20250101T000000Z",
       outlookDateStart: "2025-01-01T00:00:00Z"
     }
+  },
+  {
+    name: "Brisbane timezone (ahead of UTC) - simulates browser in GMT+10",
+    // User in Brisbane selects Feb 5. Their browser sends midnight Brisbane as UTC:
+    // Feb 5 00:00 Brisbane (GMT+10) = Feb 4 14:00 UTC
+    settings: {
+      title: "Brisbane Event",
+      date: "2026-02-04T14:00:00.000Z", // This is Feb 5 midnight in Brisbane!
+      start_time: "08:00",
+      start_ampm: "AM",
+      end_time: "09:00",
+      end_ampm: "AM",
+      tz: "Australia/Brisbane",
+      location: "Brisbane Office",
+      description: "Test event for Brisbane timezone"
+    },
+    expected: {
+      // Feb 5 08:00 Brisbane (GMT+10) = Feb 4 22:00 UTC
+      googleDateStart: "20260204T220000Z",
+      outlookDateStart: "2026-02-04T22:00:00Z"
+    }
+  },
+  {
+    name: "Sydney timezone (with DST) - simulates browser in GMT+11",
+    // User in Sydney during DST selects Feb 5. Their browser sends midnight Sydney as UTC:
+    // Feb 5 00:00 Sydney (GMT+11 during DST) = Feb 4 13:00 UTC
+    settings: {
+      title: "Sydney Event",
+      date: "2026-02-04T13:00:00.000Z", // This is Feb 5 midnight in Sydney during DST!
+      start_time: "08:00",
+      start_ampm: "AM",
+      end_time: "09:00",
+      end_ampm: "AM",
+      tz: "Australia/Sydney",
+      location: "Sydney Office",
+      description: "Test event for Sydney timezone during DST"
+    },
+    expected: {
+      // Feb 5 08:00 Sydney (GMT+11 during DST) = Feb 4 21:00 UTC
+      googleDateStart: "20260204T210000Z",
+      outlookDateStart: "2026-02-04T21:00:00Z"
+    }
+  },
+  {
+    name: "India timezone (half-hour offset GMT+5:30) - 1.47 billion users",
+    // User in India selects Feb 5. Browser sends midnight IST as UTC:
+    // Feb 5 00:00 India (GMT+5:30) = Feb 4 18:30 UTC
+    settings: {
+      title: "Mumbai Event",
+      date: "2026-02-04T18:30:00.000Z", // This is Feb 5 midnight in India!
+      start_time: "10:00",
+      start_ampm: "AM",
+      end_time: "11:00",
+      end_ampm: "AM",
+      tz: "Asia/Kolkata",
+      location: "Mumbai Office",
+      description: "Test event for India half-hour timezone"
+    },
+    expected: {
+      // Feb 5 10:00 India (GMT+5:30) = Feb 5 04:30 UTC
+      googleDateStart: "20260205T043000Z",
+      outlookDateStart: "2026-02-05T04:30:00Z"
+    }
+  },
+  {
+    name: "Nepal timezone (45-minute offset GMT+5:45)",
+    // User in Nepal selects Feb 5. Browser sends midnight NPT as UTC:
+    // Feb 5 00:00 Nepal (GMT+5:45) = Feb 4 18:15 UTC
+    settings: {
+      title: "Kathmandu Event",
+      date: "2026-02-04T18:15:00.000Z", // This is Feb 5 midnight in Nepal!
+      start_time: "09:00",
+      start_ampm: "AM",
+      end_time: "10:00",
+      end_ampm: "AM",
+      tz: "Asia/Kathmandu",
+      location: "Kathmandu",
+      description: "Test event for Nepal 45-minute timezone"
+    },
+    expected: {
+      // Feb 5 09:00 Nepal (GMT+5:45) = Feb 5 03:15 UTC
+      googleDateStart: "20260205T031500Z",
+      outlookDateStart: "2026-02-05T03:15:00Z"
+    }
+  },
+  {
+    name: "Phoenix Arizona (no DST, stays GMT-7)",
+    // Arizona doesn't observe DST - stays MST year-round
+    settings: {
+      title: "Phoenix Event",
+      date: "2026-07-15T07:00:00.000Z", // July - when most of US is on DST, Arizona is not
+      start_time: "09:00",
+      start_ampm: "AM",
+      end_time: "10:00",
+      end_ampm: "AM",
+      tz: "America/Phoenix",
+      location: "Phoenix, AZ",
+      description: "Test event for Arizona no-DST"
+    },
+    expected: {
+      // Jul 15 09:00 Phoenix (GMT-7, no DST) = Jul 15 16:00 UTC
+      googleDateStart: "20260715T160000Z",
+      outlookDateStart: "2026-07-15T16:00:00Z"
+    }
+  },
+  {
+    name: "Adelaide timezone (half-hour offset with DST, GMT+9:30/+10:30)",
+    // User in Adelaide during summer (DST) selects Feb 5
+    // Feb 5 00:00 Adelaide (GMT+10:30 during DST) = Feb 4 13:30 UTC
+    settings: {
+      title: "Adelaide Event",
+      date: "2026-02-04T13:30:00.000Z", // This is Feb 5 midnight in Adelaide during DST!
+      start_time: "10:00",
+      start_ampm: "AM",
+      end_time: "11:00",
+      end_ampm: "AM",
+      tz: "Australia/Adelaide",
+      location: "Adelaide, SA",
+      description: "Test event for Adelaide half-hour timezone with DST"
+    },
+    expected: {
+      // Feb 5 10:00 Adelaide (GMT+10:30 during DST) = Feb 4 23:30 UTC
+      googleDateStart: "20260204T233000Z",
+      outlookDateStart: "2026-02-04T23:30:00Z"
+    }
   }
 ];
 
@@ -68,11 +197,18 @@ function mapTimezoneToIANA(kitTimezone) {
   if (kitTimezone && kitTimezone.includes('/')) {
     return kitTimezone;
   }
+  // Subset of timezone mappings for testing - matches calendar-block/index.js
   const timezoneMap = {
     'Pacific Time (GMT-08:00)': 'America/Los_Angeles',
     'Mountain Time (GMT-07:00)': 'America/Denver',
+    'Phoenix (GMT-07:00)': 'America/Phoenix',
     'Central Time (GMT-06:00)': 'America/Chicago',
     'Eastern Time (GMT-05:00)': 'America/New_York',
+    'India (GMT+05:30)': 'Asia/Kolkata',
+    'Nepal (GMT+05:45)': 'Asia/Kathmandu',
+    'Adelaide (GMT+09:30)': 'Australia/Adelaide',
+    'Brisbane (GMT+10:00)': 'Australia/Brisbane',
+    'Sydney (GMT+10:00)': 'Australia/Sydney',
     'UTC': 'UTC',
   };
   return timezoneMap[kitTimezone] || kitTimezone || 'UTC';
@@ -84,9 +220,13 @@ function runTest(testCase) {
 
   try {
     const ianaTimezone = mapTimezoneToIANA(settings.tz);
-    // Extract date directly from ISO string to preserve user's selected date
+    // Parse the date ISO as UTC, then convert to target timezone to get the correct date.
+    // This handles timezones ahead of UTC (like Brisbane/Sydney) where the user's browser
+    // sends midnight local time as the previous day in UTC.
     // (matches the fix in calendar-block/index.js)
-    const datePart = settings.date.split('T')[0];
+    const utcMoment = DateTime.fromISO(settings.date, { zone: 'utc' });
+    const dateInTargetTz = utcMoment.setZone(ianaTimezone);
+    const datePart = dateInTargetTz.toISODate();
 
     const fullStartString = `${datePart} ${settings.start_time} ${settings.start_ampm}`;
     const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd hh:mm a', { zone: ianaTimezone });

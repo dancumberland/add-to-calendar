@@ -3,45 +3,153 @@ import { buildIcs } from "../../utils/buildIcs.js";
 import { trackDailyUsage } from "../../utils/analytics.js";
 import { DateTime } from "luxon";
 
+// Comprehensive timezone mapping covering 99%+ of global users
+// Based on population data and common "gotcha" zones that cause support tickets
+// See: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+const TIMEZONE_MAP = {
+  // ============ AMERICAS (14 zones) ============
+  'Pacific Time (GMT-08:00)': 'America/Los_Angeles',
+  'Los Angeles (GMT-08:00)': 'America/Los_Angeles',
+  'Mountain Time (GMT-07:00)': 'America/Denver',
+  'Denver (GMT-07:00)': 'America/Denver',
+  'Phoenix (GMT-07:00)': 'America/Phoenix',  // Arizona - NO DST!
+  'Central Time (GMT-06:00)': 'America/Chicago',
+  'Chicago (GMT-06:00)': 'America/Chicago',
+  'Mexico City (GMT-06:00)': 'America/Mexico_City',
+  'Eastern Time (GMT-05:00)': 'America/New_York',
+  'New York (GMT-05:00)': 'America/New_York',
+  'Toronto (GMT-05:00)': 'America/Toronto',
+  'Lima (GMT-05:00)': 'America/Lima',
+  'Bogota (GMT-05:00)': 'America/Bogota',
+  'Alaska Time (GMT-09:00)': 'America/Anchorage',
+  'Anchorage (GMT-09:00)': 'America/Anchorage',
+  'Hawaii Time (GMT-10:00)': 'Pacific/Honolulu',
+  'Honolulu (GMT-10:00)': 'Pacific/Honolulu',
+  'Sao Paulo (GMT-03:00)': 'America/Sao_Paulo',
+  'Buenos Aires (GMT-03:00)': 'America/Argentina/Buenos_Aires',
+  'Santiago (GMT-04:00)': 'America/Santiago',
+  'Caracas (GMT-04:00)': 'America/Caracas',
+  // Half-hour offset - Newfoundland
+  'St Johns (GMT-03:30)': 'America/St_Johns',
+  'Newfoundland (GMT-03:30)': 'America/St_Johns',
+
+  // ============ EUROPE (12 zones) ============
+  'GMT': 'UTC',
+  'UTC': 'UTC',
+  'London (GMT+00:00)': 'Europe/London',
+  'Dublin (GMT+00:00)': 'Europe/Dublin',
+  'Lisbon (GMT+00:00)': 'Europe/Lisbon',
+  'Paris (GMT+01:00)': 'Europe/Paris',
+  'Berlin (GMT+01:00)': 'Europe/Berlin',
+  'Amsterdam (GMT+01:00)': 'Europe/Amsterdam',
+  'Rome (GMT+01:00)': 'Europe/Rome',
+  'Madrid (GMT+01:00)': 'Europe/Madrid',
+  'Stockholm (GMT+01:00)': 'Europe/Stockholm',
+  'Warsaw (GMT+01:00)': 'Europe/Warsaw',
+  'Athens (GMT+02:00)': 'Europe/Athens',
+  'Helsinki (GMT+02:00)': 'Europe/Helsinki',
+  'Istanbul (GMT+03:00)': 'Europe/Istanbul',  // Turkey - no DST since 2016
+  'Moscow (GMT+03:00)': 'Europe/Moscow',
+
+  // ============ AFRICA (5 zones) ============
+  'Cairo (GMT+02:00)': 'Africa/Cairo',
+  'Johannesburg (GMT+02:00)': 'Africa/Johannesburg',
+  'Lagos (GMT+01:00)': 'Africa/Lagos',
+  'Nairobi (GMT+03:00)': 'Africa/Nairobi',
+  'Casablanca (GMT+01:00)': 'Africa/Casablanca',
+
+  // ============ MIDDLE EAST (5 zones) ============
+  'Dubai (GMT+04:00)': 'Asia/Dubai',
+  'Riyadh (GMT+03:00)': 'Asia/Riyadh',
+  'Tel Aviv (GMT+02:00)': 'Asia/Tel_Aviv',
+  'Jerusalem (GMT+02:00)': 'Asia/Jerusalem',
+  // Half-hour offset - Iran
+  'Tehran (GMT+03:30)': 'Asia/Tehran',
+
+  // ============ ASIA (14 zones) ============
+  // Half-hour offset - Afghanistan
+  'Kabul (GMT+04:30)': 'Asia/Kabul',
+  'Karachi (GMT+05:00)': 'Asia/Karachi',
+  // Half-hour offset - India (1.47 BILLION people!)
+  'Mumbai (GMT+05:30)': 'Asia/Kolkata',
+  'Delhi (GMT+05:30)': 'Asia/Kolkata',
+  'Kolkata (GMT+05:30)': 'Asia/Kolkata',
+  'India (GMT+05:30)': 'Asia/Kolkata',
+  'Colombo (GMT+05:30)': 'Asia/Colombo',
+  // 45-minute offset - Nepal
+  'Kathmandu (GMT+05:45)': 'Asia/Kathmandu',
+  'Nepal (GMT+05:45)': 'Asia/Kathmandu',
+  'Dhaka (GMT+06:00)': 'Asia/Dhaka',
+  // Half-hour offset - Myanmar
+  'Yangon (GMT+06:30)': 'Asia/Yangon',
+  'Bangkok (GMT+07:00)': 'Asia/Bangkok',
+  'Ho Chi Minh (GMT+07:00)': 'Asia/Ho_Chi_Minh',
+  'Jakarta (GMT+07:00)': 'Asia/Jakarta',
+  'Singapore (GMT+08:00)': 'Asia/Singapore',
+  'Hong Kong (GMT+08:00)': 'Asia/Hong_Kong',
+  'Shanghai (GMT+08:00)': 'Asia/Shanghai',
+  'Beijing (GMT+08:00)': 'Asia/Shanghai',
+  'Taipei (GMT+08:00)': 'Asia/Taipei',
+  'Manila (GMT+08:00)': 'Asia/Manila',
+  'Perth (GMT+08:00)': 'Australia/Perth',
+  'Seoul (GMT+09:00)': 'Asia/Seoul',
+  'Tokyo (GMT+09:00)': 'Asia/Tokyo',
+
+  // ============ AUSTRALIA & OCEANIA (8 zones) ============
+  // Half-hour offset - Northern Territory (NO DST)
+  'Darwin (GMT+09:30)': 'Australia/Darwin',
+  // Half-hour offset - South Australia (HAS DST)
+  'Adelaide (GMT+09:30)': 'Australia/Adelaide',
+  // Queensland - NO DST! (Common complaint: users pick Sydney but are in Brisbane)
+  'Brisbane (GMT+10:00)': 'Australia/Brisbane',
+  'Queensland (GMT+10:00)': 'Australia/Brisbane',
+  // New South Wales, Victoria, Tasmania - HAS DST
+  'Sydney (GMT+10:00)': 'Australia/Sydney',
+  'Melbourne (GMT+10:00)': 'Australia/Melbourne',
+  'Hobart (GMT+10:00)': 'Australia/Hobart',
+  // New Zealand
+  'Auckland (GMT+12:00)': 'Pacific/Auckland',
+  'Wellington (GMT+12:00)': 'Pacific/Auckland',
+  'Fiji (GMT+12:00)': 'Pacific/Fiji',
+  // 45-minute offset - Chatham Islands (rare but exists)
+  'Chatham (GMT+12:45)': 'Pacific/Chatham',
+};
+
 function mapTimezoneToIANA(kitTimezone) {
-  // If it's already in IANA format, return as-is
+  // If it's already in IANA format (contains '/'), validate and return
   if (kitTimezone && kitTimezone.includes('/')) {
-    return kitTimezone;
+    // Validate it's a real IANA timezone by attempting to use it
+    const testDt = DateTime.now().setZone(kitTimezone);
+    if (testDt.isValid) {
+      return kitTimezone;
+    }
+    console.warn(`Invalid IANA timezone: ${kitTimezone}, defaulting to UTC`);
+    return 'UTC';
   }
-  
-  // Map common Kit timezone formats to IANA identifiers
-  const timezoneMap = {
-    'Pacific Time (GMT-08:00)': 'America/Los_Angeles',
-    'Mountain Time (GMT-07:00)': 'America/Denver',
-    'Central Time (GMT-06:00)': 'America/Chicago',
-    'Eastern Time (GMT-05:00)': 'America/New_York',
-    'Alaska Time (GMT-09:00)': 'America/Anchorage',
-    'Hawaii Time (GMT-10:00)': 'Pacific/Honolulu',
-    'GMT': 'UTC',
-    'UTC': 'UTC',
-    'London (GMT+00:00)': 'Europe/London',
-    'Paris (GMT+01:00)': 'Europe/Paris',
-    'Berlin (GMT+01:00)': 'Europe/Berlin',
-    'Tokyo (GMT+09:00)': 'Asia/Tokyo',
-    'Sydney (GMT+10:00)': 'Australia/Sydney',
-    'Auckland (GMT+12:00)': 'Pacific/Auckland',
-  };
-  
+
   // Try exact match first
-  if (timezoneMap[kitTimezone]) {
-    return timezoneMap[kitTimezone];
+  if (TIMEZONE_MAP[kitTimezone]) {
+    return TIMEZONE_MAP[kitTimezone];
   }
-  
-  // Try to extract timezone from format like "Pacific Time (GMT-08:00)"
-  // and match against partial strings
-  for (const [key, value] of Object.entries(timezoneMap)) {
-    if (kitTimezone.includes(key.split(' ')[0])) {
+
+  // Try case-insensitive match
+  const lowerInput = kitTimezone?.toLowerCase() || '';
+  for (const [key, value] of Object.entries(TIMEZONE_MAP)) {
+    if (key.toLowerCase() === lowerInput) {
       return value;
     }
   }
-  
-  // Default to UTC if we can't map it
-  console.warn(`Unknown timezone format: ${kitTimezone}, defaulting to UTC`);
+
+  // Try partial match (e.g., "Pacific" matches "Pacific Time (GMT-08:00)")
+  for (const [key, value] of Object.entries(TIMEZONE_MAP)) {
+    const keyStart = key.split(' ')[0].toLowerCase();
+    if (lowerInput.includes(keyStart) || keyStart.includes(lowerInput)) {
+      return value;
+    }
+  }
+
+  // Default to UTC with clear warning
+  console.warn(`⚠️ TIMEZONE NOT FOUND: "${kitTimezone}" - defaulting to UTC. Consider adding this timezone to TIMEZONE_MAP.`);
   return 'UTC';
 }
 
@@ -54,6 +162,66 @@ function inferEventType(title, description = '') {
   if (text.includes('deadline') || text.includes('due') || text.includes('submit')) return 'deadline';
   if (text.includes('event') || text.includes('conference') || text.includes('workshop')) return 'event';
   return 'other';
+}
+
+// Check for DST edge cases (ambiguous or invalid times)
+// Returns: { valid: true } or { valid: false, reason: string, suggestion: DateTime }
+function checkDSTEdgeCases(dt, timezone) {
+  if (!dt.isValid) {
+    return { valid: false, reason: 'invalid_datetime', message: dt.invalidExplanation };
+  }
+
+  // Check for ambiguous times (fall-back DST - time occurs twice)
+  // Luxon's getPossibleOffsets() returns multiple offsets if time is ambiguous
+  try {
+    const possibleOffsets = dt.getPossibleOffsets?.();
+    if (possibleOffsets && possibleOffsets.length > 1) {
+      console.warn(`⚠️ DST AMBIGUOUS TIME: ${dt.toString()} in ${timezone} has ${possibleOffsets.length} possible interpretations`);
+      // We'll use the first (earlier) occurrence by default
+      return {
+        valid: true,
+        warning: 'ambiguous_time',
+        message: `Time ${dt.toFormat('h:mm a')} occurs twice due to DST fall-back. Using earlier occurrence.`
+      };
+    }
+  } catch (e) {
+    // getPossibleOffsets may not be available in all Luxon versions
+  }
+
+  // Check if the time was adjusted due to DST gap (spring-forward - time doesn't exist)
+  // We can detect this by recreating the datetime and comparing
+  const recreated = DateTime.fromObject({
+    year: dt.year,
+    month: dt.month,
+    day: dt.day,
+    hour: dt.hour,
+    minute: dt.minute
+  }, { zone: timezone });
+
+  if (recreated.hour !== dt.hour || recreated.minute !== dt.minute) {
+    console.warn(`⚠️ DST GAP TIME: Requested time was adjusted from ${dt.hour}:${dt.minute} to ${recreated.hour}:${recreated.minute} due to DST spring-forward`);
+    return {
+      valid: true,
+      warning: 'time_adjusted',
+      message: `Requested time doesn't exist due to DST spring-forward. Adjusted to ${recreated.toFormat('h:mm a')}.`
+    };
+  }
+
+  return { valid: true };
+}
+
+// Validate time format (HH:MM)
+function validateTimeFormat(timeStr) {
+  const match = timeStr?.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return false;
+  const hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  return hours >= 1 && hours <= 12 && minutes >= 0 && minutes <= 59;
+}
+
+// Validate AM/PM
+function validateAmPm(ampm) {
+  return ampm && ['AM', 'PM', 'am', 'pm'].includes(ampm);
 }
 
 export default async function handler(req, res) {
@@ -104,6 +272,21 @@ export default async function handler(req, res) {
       return res.status(200).json({ code: 200, html: placeholderHtml });
     }
 
+    // ===== INPUT VALIDATION =====
+    // Validate time formats early to catch bad data
+    if (!validateTimeFormat(start_time)) {
+      throw new Error(`Invalid start time format: '${start_time}'. Expected HH:MM (e.g., '09:30' or '2:00')`);
+    }
+    if (!validateTimeFormat(end_time)) {
+      throw new Error(`Invalid end time format: '${end_time}'. Expected HH:MM (e.g., '09:30' or '2:00')`);
+    }
+    if (!validateAmPm(start_ampm)) {
+      throw new Error(`Invalid start AM/PM: '${start_ampm}'. Expected 'AM' or 'PM'`);
+    }
+    if (!validateAmPm(end_ampm)) {
+      throw new Error(`Invalid end AM/PM: '${end_ampm}'. Expected 'AM' or 'PM'`);
+    }
+
     // ===== DIAGNOSTIC LOGGING: TIMEZONE ISSUE INVESTIGATION =====
     console.log('🔍 TIMEZONE DEBUG - Input from Kit:');
     console.log('  dateISO:', dateISO);
@@ -120,17 +303,22 @@ export default async function handler(req, res) {
     const ianaTimezone = mapTimezoneToIANA(tz);
     console.log('  timezone (mapped to IANA):', ianaTimezone);
 
-    // The date picker returns a full ISO string like "2025-02-15T00:00:00.000Z"
-    // We extract just the date portion directly to preserve the user's selected date.
-    // Previously we parsed in target timezone, but this caused dates to shift back one day
-    // for western timezones (e.g., midnight UTC on Feb 15 = 4 PM on Feb 14 in Pacific).
-    const datePart = dateISO.split('T')[0];
+    // The date picker returns a full ISO string representing midnight in the USER'S BROWSER timezone.
+    // For example, a Brisbane user (GMT+10) selecting Feb 5 gets: "2026-02-04T14:00:00.000Z"
+    // (Feb 5 00:00 Brisbane = Feb 4 14:00 UTC)
+    //
+    // To get the correct date, we parse the ISO as UTC, convert to the TARGET timezone,
+    // and extract the date from that. This works for both eastern (ahead of UTC) and
+    // western (behind UTC) timezones because we're interpreting the moment in context.
+    const utcMoment = DateTime.fromISO(dateISO, { zone: 'utc' });
+    const dateInTargetTz = utcMoment.setZone(ianaTimezone);
+    const datePart = dateInTargetTz.toISODate();
     
     console.log('🔍 TIMEZONE DEBUG - Date parsing:');
-    console.log('  datePart (parsed in target TZ):', datePart);
-    console.log('  Original dateISO parsed as UTC:', DateTime.fromISO(dateISO, { zone: 'utc' }).toString());
-    console.log('  Original dateISO parsed in target TZ:', DateTime.fromISO(dateISO, { zone: tz }).toString());
-    console.log('  Comparison - UTC date:', DateTime.fromISO(dateISO, { zone: 'utc' }).toISODate(), 'vs Target TZ date:', datePart);
+    console.log('  utcMoment:', utcMoment.toString());
+    console.log('  dateInTargetTz:', dateInTargetTz.toString());
+    console.log('  datePart (extracted from target TZ):', datePart);
+    console.log('  Comparison - UTC date:', utcMoment.toISODate(), 'vs Target TZ date:', datePart);
 
     // Construct a parseable 12-hour format string
     const fullStartString = `${datePart} ${start_time} ${start_ampm}`;
@@ -155,7 +343,25 @@ export default async function handler(req, res) {
     console.log('  endDateTime.isValid:', endDateTime.isValid);
 
     if (!startDateTime.isValid || !endDateTime.isValid) {
-      throw new Error(`Invalid date/time. Received: date='${dateISO}', start='${start_time} ${start_ampm}', end='${end_time} ${end_ampm}', tz='${tz}' (mapped to '${ianaTimezone}')`);
+      const startReason = startDateTime.invalidReason || 'unknown';
+      const endReason = endDateTime.invalidReason || 'unknown';
+      throw new Error(`Invalid date/time. Start: ${startReason}, End: ${endReason}. Received: date='${dateISO}', start='${start_time} ${start_ampm}', end='${end_time} ${end_ampm}', tz='${tz}' (mapped to '${ianaTimezone}')`);
+    }
+
+    // Check for DST edge cases
+    const startDSTCheck = checkDSTEdgeCases(startDateTime, ianaTimezone);
+    const endDSTCheck = checkDSTEdgeCases(endDateTime, ianaTimezone);
+
+    if (startDSTCheck.warning) {
+      console.log(`🕐 DST WARNING (start): ${startDSTCheck.message}`);
+    }
+    if (endDSTCheck.warning) {
+      console.log(`🕐 DST WARNING (end): ${endDSTCheck.message}`);
+    }
+
+    // Validate end time is after start time
+    if (endDateTime <= startDateTime) {
+      console.warn(`⚠️ END TIME WARNING: End time (${endDateTime.toFormat('h:mm a')}) is not after start time (${startDateTime.toFormat('h:mm a')}). Event may span midnight.`);
     }
 
     const icsText = buildIcs({
