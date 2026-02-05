@@ -1,6 +1,6 @@
 # Project Backlog
 
-**Last Updated**: 2026-01-06 15:55
+**Last Updated**: 2026-02-05 12:20
 **Session Context**: See [.claude/INDEX.md](../.claude/INDEX.md)
 
 ---
@@ -112,7 +112,16 @@ If Vercel logs contain old daily data, implement backfill for Sep-Oct 2025 to po
 
 ## BLOCKED
 
-(None currently)
+### Brisbane Timezone in Kit Dropdown
+**Priority**: HIGH (user-facing)
+**Status**: Waiting on Kit support
+**Blocked by**: Kit platform — timezone picker controlled by Kit, not our app
+
+Brisbane/Queensland isn't in Kit's timezone dropdown. Drafted feature request to support@kit.com on 2026-02-05.
+
+**Workaround for users**: Select Sydney (same GMT+10), but will be off by 1 hour during Sydney's DST months (Oct-Apr).
+
+---
 
 ---
 

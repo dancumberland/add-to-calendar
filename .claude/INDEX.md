@@ -8,6 +8,7 @@ Quick overview of all development sessions with brief summaries and status indic
 
 | Date | Session | Type | Status | Summary |
 |------|---------|------|--------|---------|
+| 02.05 | [brisbane-timezone-investigation](./sessions/260205.1216-brisbane-timezone-investigation.md) | investigation | ✅ Complete | Discovered Brisbane missing from Kit's timezone picker is a platform limitation; drafted emails to Sharon and Kit support |
 | 02.04 | [bulletproof-timezone-handling](./sessions/260204.0747-bulletproof-timezone-handling.md) | bugfix | ✅ Complete | Fixed Brisbane timezone bug, expanded to 70+ timezones, added DST detection, documented research |
 
 ### January
