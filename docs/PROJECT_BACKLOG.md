@@ -7,45 +7,41 @@
 
 ## NEXT (This or Next Session)
 
-### Monitor Automated Calendar Tests
+### Add Cron Failure Alerts to Test Endpoint
 **Priority**: HIGH
-**Estimated Effort**: 15 min
-**Status**: Ready (runs Monday 12:00 UTC)
-
-Verify the weekly automated calendar integration tests are running and alerting correctly.
-
-**Deliverables**:
-- Confirm first automated test runs successfully (next Monday)
-- Check email alert system triggers on failure
-- Review test results in Vercel logs
-
-**Dependencies**:
-- ✅ Test endpoint created (api/test-calendars)
-- ✅ Weekly cron configured (Mondays 12:00 UTC)
-- ✅ Tests verified passing locally
-
----
-
-### Verify Weekly Analytics Aggregation
-**Priority**: MEDIUM
 **Estimated Effort**: 1-2 hours
-**Status**: Ongoing monitoring
+**Status**: Ready
 
-Confirm that the weekly aggregation system is working correctly and producing accurate email reports.
+The cron-triggered test endpoint (`/api/test-calendars`) runs silently — it returns JSON results but doesn't send failure alerts. The alert/email logic lives only in the CLI script (`scripts/test-calendar-integrations.js`). Add failure alerting directly to the API endpoint so the Monday cron actually notifies on test failures.
 
 **Deliverables**:
-- Verify weekly email shows full 12-week trend with no zeros
-- Check all-time total matches sum of weekly aggregates
-- Validate Week-over-week calculations are accurate
+- Add email/webhook alert to `/api/test-calendars` when any test fails
+- Use existing MAKE_WEBHOOK_URL or REPORT_EMAIL env vars
+- Keep the endpoint working as-is for manual GET requests
 
 **Dependencies**:
-- ✅ Weekly aggregates implemented (analytics.js complete)
-- ✅ Email report updated to use aggregates
-- ✅ Aggregation running since Dec 2025
+- ✅ Test endpoint working (12/12 pass)
+- ✅ Alert env vars configured (MAKE_WEBHOOK_URL, REPORT_EMAIL)
 
 ---
 
-## SOON (1-2 Weeks)
+### Fix Weekend Data Gap in Weekly Aggregation
+**Priority**: MEDIUM
+**Estimated Effort**: 1 hour
+**Status**: Ready
+
+The Friday cron creates weekly aggregates for the current ISO week (Mon-Sun), but runs on Friday — so Saturday and Sunday data is never included. Options: run aggregation on Monday for the prior week, or re-aggregate the prior week on each run.
+
+**Deliverables**:
+- Weekly aggregates include full Mon-Sun data
+- WoW comparisons remain accurate
+- Backfill current aggregates if approach changes
+
+**Dependencies**:
+- ✅ Weekly aggregation working
+- ✅ Data verified via KV inspection
+
+---
 
 ### Add Metrics Dashboard
 **Priority**: HIGH
@@ -127,6 +123,11 @@ Brisbane/Queensland isn't in Kit's timezone dropdown. Drafted feature request to
 
 ## Completed (Feb 16, 2026)
 
+✅ Verified automated calendar tests: 12/12 passing, cron configured correctly
+✅ Verified weekly analytics aggregation: 10 consecutive weeks with data (83-301 events/week)
+✅ Verified all-time total: 7,666 events since Aug 19, 2025, daily tracking active
+✅ Confirmed UAE timezone fix working in production with real user traffic
+✅ Identified cron alert gap (added to backlog) and weekend data gap (added to backlog)
 ✅ Fixed UAE/Dubai timezone bug — "Abu Dhabi" mapping missing from TIMEZONE_MAP
 ✅ Replaced 70-entry timezone map with complete 134-entry Rails ActiveSupport list
 ✅ Removed dangerous partial-match logic, added GMT offset fallback
