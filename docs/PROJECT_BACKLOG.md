@@ -1,6 +1,6 @@
 # Project Backlog
 
-**Last Updated**: 2026-02-05 12:20
+**Last Updated**: 2026-02-16
 **Session Context**: See [.claude/INDEX.md](../.claude/INDEX.md)
 
 ---
@@ -124,6 +124,15 @@ Brisbane/Queensland isn't in Kit's timezone dropdown. Drafted feature request to
 ---
 
 ---
+
+## Completed (Feb 16, 2026)
+
+✅ Fixed UAE/Dubai timezone bug — "Abu Dhabi" mapping missing from TIMEZONE_MAP
+✅ Replaced 70-entry timezone map with complete 134-entry Rails ActiveSupport list
+✅ Removed dangerous partial-match logic, added GMT offset fallback
+✅ Fixed single-digit hour parsing (hh:mm → h:mm)
+✅ Added 3 new test cases (Dubai, Dubai with offset, single-digit hours) — 12/12 pass
+✅ Deployed fix and replied to Kit support (ticket #69557511)
 
 ## Completed (Jan 6, 2026)
 
