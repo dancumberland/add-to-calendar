@@ -190,28 +190,140 @@ const TEST_CASES = [
       googleDateStart: "20260204T233000Z",
       outlookDateStart: "2026-02-04T23:30:00Z"
     }
+  },
+  {
+    name: "Dubai/UAE timezone (GMT+4) - Rails sends 'Abu Dhabi' not 'Dubai'",
+    // User in UAE selects Feb 10. Browser sends midnight Dubai as UTC:
+    // Feb 10 00:00 Dubai (GMT+4) = Feb 9 20:00 UTC
+    settings: {
+      title: "Dubai Event",
+      date: "2026-02-09T20:00:00.000Z", // This is Feb 10 midnight in Dubai!
+      start_time: "7:00",
+      start_ampm: "PM",
+      end_time: "8:00",
+      end_ampm: "PM",
+      tz: "Abu Dhabi",  // Rails ActiveSupport name (what Kit actually sends)
+      location: "Dubai, UAE",
+      description: "Test event for UAE timezone - the Debbie bug"
+    },
+    expected: {
+      // Feb 10 7:00 PM Dubai (GMT+4) = Feb 10 3:00 PM UTC
+      googleDateStart: "20260210T150000Z",
+      outlookDateStart: "2026-02-10T15:00:00Z"
+    }
+  },
+  {
+    name: "Dubai/UAE timezone with offset suffix format",
+    // Same event but with the older Kit format that includes GMT offset
+    settings: {
+      title: "Dubai Event Alt Format",
+      date: "2026-02-09T20:00:00.000Z",
+      start_time: "7:00",
+      start_ampm: "PM",
+      end_time: "8:00",
+      end_ampm: "PM",
+      tz: "Abu Dhabi (GMT+04:00)",  // Alternate format with offset
+      location: "Dubai, UAE",
+      description: "Test event for UAE timezone with offset format"
+    },
+    expected: {
+      googleDateStart: "20260210T150000Z",
+      outlookDateStart: "2026-02-10T15:00:00Z"
+    }
+  },
+  {
+    name: "Single-digit hour format (2:00 PM, not 02:00 PM)",
+    // Tests that single-digit hours parse correctly
+    settings: {
+      title: "Afternoon Event",
+      date: "2026-03-15T07:00:00.000Z", // Mar 15 midnight Denver
+      start_time: "2:00",
+      start_ampm: "PM",
+      end_time: "3:00",
+      end_ampm: "PM",
+      tz: "America/Denver",
+      location: "Denver, CO",
+      description: "Test single-digit hour parsing"
+    },
+    expected: {
+      // Mar 15 2:00 PM Denver (MDT = UTC-6 in March) = Mar 15 8:00 PM UTC
+      googleDateStart: "20260315T200000Z",
+      outlookDateStart: "2026-03-15T20:00:00Z"
+    }
   }
 ];
 
 function mapTimezoneToIANA(kitTimezone) {
-  if (kitTimezone && kitTimezone.includes('/')) {
+  if (!kitTimezone) return 'UTC';
+
+  if (kitTimezone.includes('/')) {
     return kitTimezone;
   }
+
   // Subset of timezone mappings for testing - matches calendar-block/index.js
+  // Includes Rails ActiveSupport names (what Kit actually sends)
   const timezoneMap = {
+    'Pacific Time (US & Canada)': 'America/Los_Angeles',
     'Pacific Time (GMT-08:00)': 'America/Los_Angeles',
+    'Mountain Time (US & Canada)': 'America/Denver',
     'Mountain Time (GMT-07:00)': 'America/Denver',
+    'Arizona': 'America/Phoenix',
     'Phoenix (GMT-07:00)': 'America/Phoenix',
+    'Central Time (US & Canada)': 'America/Chicago',
     'Central Time (GMT-06:00)': 'America/Chicago',
+    'Eastern Time (US & Canada)': 'America/New_York',
     'Eastern Time (GMT-05:00)': 'America/New_York',
+    'Abu Dhabi': 'Asia/Muscat',          // Rails name for UAE/Gulf GMT+4
+    'Muscat': 'Asia/Muscat',
+    'Dubai': 'Asia/Dubai',
+    'Chennai': 'Asia/Kolkata',
+    'Kolkata': 'Asia/Kolkata',
+    'Mumbai': 'Asia/Kolkata',
+    'New Delhi': 'Asia/Kolkata',
     'India (GMT+05:30)': 'Asia/Kolkata',
+    'Kathmandu': 'Asia/Kathmandu',
     'Nepal (GMT+05:45)': 'Asia/Kathmandu',
+    'Adelaide': 'Australia/Adelaide',
     'Adelaide (GMT+09:30)': 'Australia/Adelaide',
+    'Brisbane': 'Australia/Brisbane',
     'Brisbane (GMT+10:00)': 'Australia/Brisbane',
+    'Sydney': 'Australia/Sydney',
     'Sydney (GMT+10:00)': 'Australia/Sydney',
-    'UTC': 'UTC',
+    'UTC': 'Etc/UTC',
   };
-  return timezoneMap[kitTimezone] || kitTimezone || 'UTC';
+
+  // Try exact match
+  if (timezoneMap[kitTimezone]) return timezoneMap[kitTimezone];
+
+  // Try case-insensitive
+  const lower = kitTimezone.toLowerCase().trim();
+  for (const [key, value] of Object.entries(timezoneMap)) {
+    if (key.toLowerCase() === lower) return value;
+  }
+
+  // Strip GMT offset and try again
+  const nameOnly = kitTimezone
+    .replace(/\s*\(GMT[+-]?\d{2}:\d{2}\)\s*/g, '')
+    .replace(/\s*GMT[+-]?\d{2}:\d{2}\s*/g, '')
+    .trim();
+  if (nameOnly && timezoneMap[nameOnly]) return timezoneMap[nameOnly];
+  if (nameOnly) {
+    const lowerName = nameOnly.toLowerCase();
+    for (const [key, value] of Object.entries(timezoneMap)) {
+      if (key.toLowerCase() === lowerName) return value;
+    }
+  }
+
+  // Extract GMT offset as fallback
+  const offsetMatch = kitTimezone.match(/GMT([+-])(\d{2}):(\d{2})/);
+  if (offsetMatch) {
+    const sign = offsetMatch[1];
+    const hours = parseInt(offsetMatch[2], 10);
+    const minutes = parseInt(offsetMatch[3], 10);
+    return `UTC${sign}${hours}${minutes > 0 ? ':' + String(minutes).padStart(2, '0') : ''}`;
+  }
+
+  return kitTimezone || 'UTC';
 }
 
 function runTest(testCase) {
@@ -229,7 +341,7 @@ function runTest(testCase) {
     const datePart = dateInTargetTz.toISODate();
 
     const fullStartString = `${datePart} ${settings.start_time} ${settings.start_ampm}`;
-    const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd hh:mm a', { zone: ianaTimezone });
+    const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
 
     if (!startDateTime.isValid) {
       results.passed = false;

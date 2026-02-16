@@ -3,122 +3,249 @@ import { buildIcs } from "../../utils/buildIcs.js";
 import { trackDailyUsage } from "../../utils/analytics.js";
 import { DateTime } from "luxon";
 
-// Comprehensive timezone mapping covering 99%+ of global users
-// Based on population data and common "gotcha" zones that cause support tickets
-// See: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+// Complete timezone mapping based on Rails ActiveSupport::TimeZone
+// Kit is a Rails app, so its timezone picker uses these exact names.
+// Source: https://api.rubyonrails.org/classes/ActiveSupport/TimeZone.html
+//
+// Format: Kit may send just the name ("Abu Dhabi") or with offset ("Abu Dhabi (GMT+04:00)")
+// The mapTimezoneToIANA function handles both via exact match + name extraction.
 const TIMEZONE_MAP = {
-  // ============ AMERICAS (14 zones) ============
+  // ============ RAILS ActiveSupport::TimeZone (134 entries) ============
+  // These are the EXACT names from Rails' timezone list.
+  // Kit is a Rails app, so this is what its picker sends.
+
+  // --- UTC-12 to UTC-8 ---
+  'International Date Line West': 'Etc/GMT+12',
+  'Midway Island': 'Pacific/Midway',
+  'American Samoa': 'Pacific/Pago_Pago',
+  'Hawaii': 'Pacific/Honolulu',
+  'Alaska': 'America/Juneau',
+  'Pacific Time (US & Canada)': 'America/Los_Angeles',
+  'Tijuana': 'America/Tijuana',
+
+  // --- UTC-7 ---
+  'Mountain Time (US & Canada)': 'America/Denver',
+  'Arizona': 'America/Phoenix',
+  'Chihuahua': 'America/Chihuahua',
+  'Mazatlan': 'America/Mazatlan',
+
+  // --- UTC-6 ---
+  'Central Time (US & Canada)': 'America/Chicago',
+  'Saskatchewan': 'America/Regina',
+  'Guadalajara': 'America/Mexico_City',
+  'Mexico City': 'America/Mexico_City',
+  'Monterrey': 'America/Monterrey',
+  'Central America': 'America/Guatemala',
+
+  // --- UTC-5 ---
+  'Eastern Time (US & Canada)': 'America/New_York',
+  'Indiana (East)': 'America/Indiana/Indianapolis',
+  'Bogota': 'America/Bogota',
+  'Lima': 'America/Lima',
+  'Quito': 'America/Lima',
+
+  // --- UTC-4 ---
+  'Atlantic Time (Canada)': 'America/Halifax',
+  'Caracas': 'America/Caracas',
+  'La Paz': 'America/La_Paz',
+  'Santiago': 'America/Santiago',
+
+  // --- UTC-3:30 ---
+  'Newfoundland': 'America/St_Johns',
+
+  // --- UTC-3 ---
+  'Brasilia': 'America/Sao_Paulo',
+  'Buenos Aires': 'America/Argentina/Buenos_Aires',
+  'Montevideo': 'America/Montevideo',
+  'Georgetown': 'America/Guyana',
+  'Puerto Rico': 'America/Puerto_Rico',
+  'Greenland': 'America/Godthab',
+
+  // --- UTC-2 ---
+  'Mid-Atlantic': 'Atlantic/South_Georgia',
+
+  // --- UTC-1 ---
+  'Azores': 'Atlantic/Azores',
+  'Cape Verde Is.': 'Atlantic/Cape_Verde',
+
+  // --- UTC+0 ---
+  'Dublin': 'Europe/Dublin',
+  'Edinburgh': 'Europe/London',
+  'Lisbon': 'Europe/Lisbon',
+  'London': 'Europe/London',
+  'Casablanca': 'Africa/Casablanca',
+  'Monrovia': 'Africa/Monrovia',
+  'UTC': 'Etc/UTC',
+
+  // --- UTC+1 ---
+  'Belgrade': 'Europe/Belgrade',
+  'Bratislava': 'Europe/Bratislava',
+  'Budapest': 'Europe/Budapest',
+  'Ljubljana': 'Europe/Ljubljana',
+  'Prague': 'Europe/Prague',
+  'Sarajevo': 'Europe/Sarajevo',
+  'Skopje': 'Europe/Skopje',
+  'Warsaw': 'Europe/Warsaw',
+  'Zagreb': 'Europe/Zagreb',
+  'Brussels': 'Europe/Brussels',
+  'Copenhagen': 'Europe/Copenhagen',
+  'Madrid': 'Europe/Madrid',
+  'Paris': 'Europe/Paris',
+  'Amsterdam': 'Europe/Amsterdam',
+  'Berlin': 'Europe/Berlin',
+  'Bern': 'Europe/Zurich',
+  'Zurich': 'Europe/Zurich',
+  'Rome': 'Europe/Rome',
+  'Stockholm': 'Europe/Stockholm',
+  'Vienna': 'Europe/Vienna',
+  'West Central Africa': 'Africa/Algiers',
+
+  // --- UTC+2 ---
+  'Bucharest': 'Europe/Bucharest',
+  'Cairo': 'Africa/Cairo',
+  'Helsinki': 'Europe/Helsinki',
+  'Kyiv': 'Europe/Kiev',
+  'Riga': 'Europe/Riga',
+  'Sofia': 'Europe/Sofia',
+  'Tallinn': 'Europe/Tallinn',
+  'Vilnius': 'Europe/Vilnius',
+  'Athens': 'Europe/Athens',
+  'Istanbul': 'Europe/Istanbul',
+  'Minsk': 'Europe/Minsk',
+  'Jerusalem': 'Asia/Jerusalem',
+  'Harare': 'Africa/Harare',
+  'Pretoria': 'Africa/Johannesburg',
+
+  // --- UTC+3 ---
+  'Kaliningrad': 'Europe/Kaliningrad',
+  'Moscow': 'Europe/Moscow',
+  'St. Petersburg': 'Europe/Moscow',
+  'Volgograd': 'Europe/Volgograd',
+  'Samara': 'Europe/Samara',
+  'Kuwait': 'Asia/Kuwait',
+  'Riyadh': 'Asia/Riyadh',
+  'Nairobi': 'Africa/Nairobi',
+  'Baghdad': 'Asia/Baghdad',
+
+  // --- UTC+3:30 ---
+  'Tehran': 'Asia/Tehran',
+
+  // --- UTC+4 (THE DUBAI/UAE FIX) ---
+  'Abu Dhabi': 'Asia/Muscat',   // ← This is what Kit sends for UAE!
+  'Muscat': 'Asia/Muscat',
+  'Baku': 'Asia/Baku',
+  'Tbilisi': 'Asia/Tbilisi',
+  'Yerevan': 'Asia/Yerevan',
+
+  // --- UTC+4:30 ---
+  'Kabul': 'Asia/Kabul',
+
+  // --- UTC+5 ---
+  'Ekaterinburg': 'Asia/Yekaterinburg',
+  'Islamabad': 'Asia/Karachi',
+  'Karachi': 'Asia/Karachi',
+  'Tashkent': 'Asia/Tashkent',
+
+  // --- UTC+5:30 ---
+  'Chennai': 'Asia/Kolkata',
+  'Kolkata': 'Asia/Kolkata',
+  'Mumbai': 'Asia/Kolkata',
+  'New Delhi': 'Asia/Kolkata',
+  'Sri Jayawardenepura': 'Asia/Colombo',
+
+  // --- UTC+5:45 ---
+  'Kathmandu': 'Asia/Kathmandu',
+
+  // --- UTC+6 ---
+  'Astana': 'Asia/Dhaka',
+  'Dhaka': 'Asia/Dhaka',
+  'Almaty': 'Asia/Almaty',
+
+  // --- UTC+6:30 ---
+  'Novosibirsk': 'Asia/Novosibirsk',
+  'Rangoon': 'Asia/Rangoon',
+
+  // --- UTC+7 ---
+  'Bangkok': 'Asia/Bangkok',
+  'Hanoi': 'Asia/Bangkok',
+  'Jakarta': 'Asia/Jakarta',
+  'Krasnoyarsk': 'Asia/Krasnoyarsk',
+
+  // --- UTC+8 ---
+  'Beijing': 'Asia/Shanghai',
+  'Chongqing': 'Asia/Chongqing',
+  'Hong Kong': 'Asia/Hong_Kong',
+  'Urumqi': 'Asia/Urumqi',
+  'Kuala Lumpur': 'Asia/Kuala_Lumpur',
+  'Singapore': 'Asia/Singapore',
+  'Taipei': 'Asia/Taipei',
+  'Perth': 'Australia/Perth',
+  'Irkutsk': 'Asia/Irkutsk',
+
+  // --- UTC+9 ---
+  'Ulaanbaatar': 'Asia/Ulaanbaatar',
+  'Seoul': 'Asia/Seoul',
+  'Osaka': 'Asia/Tokyo',
+  'Sapporo': 'Asia/Tokyo',
+  'Tokyo': 'Asia/Tokyo',
+  'Yakutsk': 'Asia/Yakutsk',
+
+  // --- UTC+9:30 ---
+  'Darwin': 'Australia/Darwin',
+  'Adelaide': 'Australia/Adelaide',
+
+  // --- UTC+10 ---
+  'Canberra': 'Australia/Melbourne',
+  'Melbourne': 'Australia/Melbourne',
+  'Sydney': 'Australia/Sydney',
+  'Brisbane': 'Australia/Brisbane',
+  'Hobart': 'Australia/Hobart',
+  'Vladivostok': 'Asia/Vladivostok',
+  'Guam': 'Pacific/Guam',
+  'Port Moresby': 'Pacific/Port_Moresby',
+
+  // --- UTC+11 ---
+  'Magadan': 'Asia/Magadan',
+  'Srednekolymsk': 'Asia/Srednekolymsk',
+  'Solomon Is.': 'Pacific/Guadalcanal',
+  'New Caledonia': 'Pacific/Noumea',
+
+  // --- UTC+12 ---
+  'Fiji': 'Pacific/Fiji',
+  'Kamchatka': 'Asia/Kamchatka',
+  'Marshall Is.': 'Pacific/Majuro',
+  'Auckland': 'Pacific/Auckland',
+  'Wellington': 'Pacific/Auckland',
+
+  // --- UTC+13 ---
+  "Nuku'alofa": 'Pacific/Tongatapu',
+  'Tokelau Is.': 'Pacific/Fakaofo',
+  'Chatham Is.': 'Pacific/Chatham',
+  'Samoa': 'Pacific/Apia',
+
+  // ============ LEGACY ALIASES ============
+  // Additional formats we've seen Kit send historically (with GMT offset suffix)
+  // and common alternate names. Kept for backwards compatibility.
   'Pacific Time (GMT-08:00)': 'America/Los_Angeles',
-  'Los Angeles (GMT-08:00)': 'America/Los_Angeles',
   'Mountain Time (GMT-07:00)': 'America/Denver',
-  'Denver (GMT-07:00)': 'America/Denver',
-  'Phoenix (GMT-07:00)': 'America/Phoenix',  // Arizona - NO DST!
   'Central Time (GMT-06:00)': 'America/Chicago',
-  'Chicago (GMT-06:00)': 'America/Chicago',
-  'Mexico City (GMT-06:00)': 'America/Mexico_City',
   'Eastern Time (GMT-05:00)': 'America/New_York',
-  'New York (GMT-05:00)': 'America/New_York',
-  'Toronto (GMT-05:00)': 'America/Toronto',
-  'Lima (GMT-05:00)': 'America/Lima',
-  'Bogota (GMT-05:00)': 'America/Bogota',
-  'Alaska Time (GMT-09:00)': 'America/Anchorage',
-  'Anchorage (GMT-09:00)': 'America/Anchorage',
-  'Hawaii Time (GMT-10:00)': 'Pacific/Honolulu',
-  'Honolulu (GMT-10:00)': 'Pacific/Honolulu',
-  'Sao Paulo (GMT-03:00)': 'America/Sao_Paulo',
-  'Buenos Aires (GMT-03:00)': 'America/Argentina/Buenos_Aires',
-  'Santiago (GMT-04:00)': 'America/Santiago',
-  'Caracas (GMT-04:00)': 'America/Caracas',
-  // Half-hour offset - Newfoundland
-  'St Johns (GMT-03:30)': 'America/St_Johns',
-  'Newfoundland (GMT-03:30)': 'America/St_Johns',
-
-  // ============ EUROPE (12 zones) ============
-  'GMT': 'UTC',
-  'UTC': 'UTC',
-  'London (GMT+00:00)': 'Europe/London',
-  'Dublin (GMT+00:00)': 'Europe/Dublin',
-  'Lisbon (GMT+00:00)': 'Europe/Lisbon',
-  'Paris (GMT+01:00)': 'Europe/Paris',
-  'Berlin (GMT+01:00)': 'Europe/Berlin',
-  'Amsterdam (GMT+01:00)': 'Europe/Amsterdam',
-  'Rome (GMT+01:00)': 'Europe/Rome',
-  'Madrid (GMT+01:00)': 'Europe/Madrid',
-  'Stockholm (GMT+01:00)': 'Europe/Stockholm',
-  'Warsaw (GMT+01:00)': 'Europe/Warsaw',
-  'Athens (GMT+02:00)': 'Europe/Athens',
-  'Helsinki (GMT+02:00)': 'Europe/Helsinki',
-  'Istanbul (GMT+03:00)': 'Europe/Istanbul',  // Turkey - no DST since 2016
-  'Moscow (GMT+03:00)': 'Europe/Moscow',
-
-  // ============ AFRICA (5 zones) ============
-  'Cairo (GMT+02:00)': 'Africa/Cairo',
-  'Johannesburg (GMT+02:00)': 'Africa/Johannesburg',
-  'Lagos (GMT+01:00)': 'Africa/Lagos',
-  'Nairobi (GMT+03:00)': 'Africa/Nairobi',
-  'Casablanca (GMT+01:00)': 'Africa/Casablanca',
-
-  // ============ MIDDLE EAST (5 zones) ============
+  'Dubai': 'Asia/Dubai',
   'Dubai (GMT+04:00)': 'Asia/Dubai',
-  'Riyadh (GMT+03:00)': 'Asia/Riyadh',
-  'Tel Aviv (GMT+02:00)': 'Asia/Tel_Aviv',
-  'Jerusalem (GMT+02:00)': 'Asia/Jerusalem',
-  // Half-hour offset - Iran
-  'Tehran (GMT+03:30)': 'Asia/Tehran',
-
-  // ============ ASIA (14 zones) ============
-  // Half-hour offset - Afghanistan
-  'Kabul (GMT+04:30)': 'Asia/Kabul',
-  'Karachi (GMT+05:00)': 'Asia/Karachi',
-  // Half-hour offset - India (1.47 BILLION people!)
-  'Mumbai (GMT+05:30)': 'Asia/Kolkata',
-  'Delhi (GMT+05:30)': 'Asia/Kolkata',
-  'Kolkata (GMT+05:30)': 'Asia/Kolkata',
-  'India (GMT+05:30)': 'Asia/Kolkata',
-  'Colombo (GMT+05:30)': 'Asia/Colombo',
-  // 45-minute offset - Nepal
-  'Kathmandu (GMT+05:45)': 'Asia/Kathmandu',
-  'Nepal (GMT+05:45)': 'Asia/Kathmandu',
-  'Dhaka (GMT+06:00)': 'Asia/Dhaka',
-  // Half-hour offset - Myanmar
-  'Yangon (GMT+06:30)': 'Asia/Yangon',
-  'Bangkok (GMT+07:00)': 'Asia/Bangkok',
-  'Ho Chi Minh (GMT+07:00)': 'Asia/Ho_Chi_Minh',
-  'Jakarta (GMT+07:00)': 'Asia/Jakarta',
-  'Singapore (GMT+08:00)': 'Asia/Singapore',
-  'Hong Kong (GMT+08:00)': 'Asia/Hong_Kong',
-  'Shanghai (GMT+08:00)': 'Asia/Shanghai',
-  'Beijing (GMT+08:00)': 'Asia/Shanghai',
-  'Taipei (GMT+08:00)': 'Asia/Taipei',
-  'Manila (GMT+08:00)': 'Asia/Manila',
-  'Perth (GMT+08:00)': 'Australia/Perth',
-  'Seoul (GMT+09:00)': 'Asia/Seoul',
-  'Tokyo (GMT+09:00)': 'Asia/Tokyo',
-
-  // ============ AUSTRALIA & OCEANIA (8 zones) ============
-  // Half-hour offset - Northern Territory (NO DST)
-  'Darwin (GMT+09:30)': 'Australia/Darwin',
-  // Half-hour offset - South Australia (HAS DST)
-  'Adelaide (GMT+09:30)': 'Australia/Adelaide',
-  // Queensland - NO DST! (Common complaint: users pick Sydney but are in Brisbane)
-  'Brisbane (GMT+10:00)': 'Australia/Brisbane',
-  'Queensland (GMT+10:00)': 'Australia/Brisbane',
-  // New South Wales, Victoria, Tasmania - HAS DST
-  'Sydney (GMT+10:00)': 'Australia/Sydney',
-  'Melbourne (GMT+10:00)': 'Australia/Melbourne',
-  'Hobart (GMT+10:00)': 'Australia/Hobart',
-  // New Zealand
-  'Auckland (GMT+12:00)': 'Pacific/Auckland',
-  'Wellington (GMT+12:00)': 'Pacific/Auckland',
-  'Fiji (GMT+12:00)': 'Pacific/Fiji',
-  // 45-minute offset - Chatham Islands (rare but exists)
-  'Chatham (GMT+12:45)': 'Pacific/Chatham',
+  'Queensland': 'Australia/Brisbane',
+  'GMT': 'UTC',
+  'India': 'Asia/Kolkata',
+  'Nepal': 'Asia/Kathmandu',
 };
 
 function mapTimezoneToIANA(kitTimezone) {
-  // If it's already in IANA format (contains '/'), validate and return
-  if (kitTimezone && kitTimezone.includes('/')) {
-    // Validate it's a real IANA timezone by attempting to use it
+  if (!kitTimezone) {
+    console.warn('⚠️ TIMEZONE MISSING: No timezone provided, defaulting to UTC');
+    return 'UTC';
+  }
+
+  // Step 1: If it's already in IANA format (contains '/'), validate and return
+  if (kitTimezone.includes('/')) {
     const testDt = DateTime.now().setZone(kitTimezone);
     if (testDt.isValid) {
       return kitTimezone;
@@ -127,29 +254,59 @@ function mapTimezoneToIANA(kitTimezone) {
     return 'UTC';
   }
 
-  // Try exact match first
+  // Step 2: Try exact match (e.g., "Abu Dhabi", "Pacific Time (US & Canada)")
   if (TIMEZONE_MAP[kitTimezone]) {
     return TIMEZONE_MAP[kitTimezone];
   }
 
-  // Try case-insensitive match
-  const lowerInput = kitTimezone?.toLowerCase() || '';
+  // Step 3: Try case-insensitive exact match
+  const lowerInput = kitTimezone.toLowerCase().trim();
   for (const [key, value] of Object.entries(TIMEZONE_MAP)) {
     if (key.toLowerCase() === lowerInput) {
       return value;
     }
   }
 
-  // Try partial match (e.g., "Pacific" matches "Pacific Time (GMT-08:00)")
-  for (const [key, value] of Object.entries(TIMEZONE_MAP)) {
-    const keyStart = key.split(' ')[0].toLowerCase();
-    if (lowerInput.includes(keyStart) || keyStart.includes(lowerInput)) {
-      return value;
+  // Step 4: Strip GMT offset suffix and try matching the name part
+  // Handles: "Abu Dhabi (GMT+04:00)" → "Abu Dhabi"
+  // Also:    "(GMT+04:00) Abu Dhabi" → "Abu Dhabi"
+  const nameWithoutOffset = kitTimezone
+    .replace(/\s*\(GMT[+-]?\d{2}:\d{2}\)\s*/g, '')  // Remove "(GMT+04:00)" anywhere
+    .replace(/\s*GMT[+-]?\d{2}:\d{2}\s*/g, '')       // Remove bare "GMT+04:00"
+    .trim();
+
+  if (nameWithoutOffset && TIMEZONE_MAP[nameWithoutOffset]) {
+    return TIMEZONE_MAP[nameWithoutOffset];
+  }
+  // Case-insensitive after stripping offset
+  if (nameWithoutOffset) {
+    const lowerName = nameWithoutOffset.toLowerCase();
+    for (const [key, value] of Object.entries(TIMEZONE_MAP)) {
+      if (key.toLowerCase() === lowerName) {
+        return value;
+      }
     }
   }
 
-  // Default to UTC with clear warning
-  console.warn(`⚠️ TIMEZONE NOT FOUND: "${kitTimezone}" - defaulting to UTC. Consider adding this timezone to TIMEZONE_MAP.`);
+  // Step 5: LAST RESORT — extract GMT offset and use fixed-offset timezone
+  // This is better than falling back to UTC because it preserves the correct offset.
+  // Works perfectly for non-DST zones (Dubai, India, etc.) and is close enough
+  // for DST zones (off by 1 hour during DST transition, vs potentially 12 hours with UTC).
+  const offsetMatch = kitTimezone.match(/GMT([+-])(\d{2}):(\d{2})/);
+  if (offsetMatch) {
+    const sign = offsetMatch[1];
+    const hours = parseInt(offsetMatch[2], 10);
+    const minutes = parseInt(offsetMatch[3], 10);
+    const fixedOffset = `UTC${sign}${hours}${minutes > 0 ? ':' + String(minutes).padStart(2, '0') : ''}`;
+    const testDt = DateTime.now().setZone(fixedOffset);
+    if (testDt.isValid) {
+      console.warn(`⚠️ TIMEZONE NAME NOT FOUND: "${kitTimezone}" - using extracted offset ${fixedOffset}. Add this timezone name to TIMEZONE_MAP!`);
+      return fixedOffset;
+    }
+  }
+
+  // Step 6: True fallback — log loudly so we can fix the map
+  console.error(`🚨 TIMEZONE NOT FOUND: "${kitTimezone}" - defaulting to UTC. THIS WILL CAUSE DATE ERRORS FOR USERS AHEAD OF UTC. Add this timezone to TIMEZONE_MAP immediately!`);
   return 'UTC';
 }
 
@@ -329,8 +486,8 @@ export default async function handler(req, res) {
     console.log('  fullEndString:', fullEndString);
 
     // Parse the strings into Luxon DateTime objects using the specified timezone
-    const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd hh:mm a', { zone: ianaTimezone });
-    const endDateTime = DateTime.fromFormat(fullEndString, 'yyyy-MM-dd hh:mm a', { zone: ianaTimezone });
+    const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
+    const endDateTime = DateTime.fromFormat(fullEndString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
     
     console.log('🔍 TIMEZONE DEBUG - Luxon DateTime objects:');
     console.log('  startDateTime:', startDateTime.toString());
