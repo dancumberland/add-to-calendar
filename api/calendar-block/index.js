@@ -1,5 +1,3 @@
-import { kv } from "@vercel/kv";
-import { buildIcs } from "../../utils/buildIcs.js";
 import { trackDailyUsage } from "../../utils/analytics.js";
 import { DateTime } from "luxon";
 
@@ -521,34 +519,28 @@ export default async function handler(req, res) {
       console.warn(`⚠️ END TIME WARNING: End time (${endDateTime.toFormat('h:mm a')}) is not after start time (${startDateTime.toFormat('h:mm a')}). Event may span midnight.`);
     }
 
-    const icsText = buildIcs({
+    // Build stateless ICS URL — all event data encoded in query params.
+    // This means Apple calendar links never expire (unlike the old KV-based approach).
+    const baseUrl = `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}`;
+    const icsParams = new URLSearchParams({
       title,
-      description,
-      location,
-      start: startDateTime.toJSDate(),
-      end: endDateTime.toJSDate(),
+      start: startDateTime.toUTC().toISO(),
+      end: endDateTime.toUTC().toISO(),
+      ...(location && { location }),
+      ...(description && { description }),
     });
+    const icsUrl = `${baseUrl}/api/ics?${icsParams.toString()}`;
 
-    let icsUrl = "#"; // Default to a safe link
+    // Track usage metrics
     try {
-      const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
-      // Store in Vercel KV with a 24-hour expiration (86400 seconds)
-      await kv.set(id, icsText, { ex: 86400 });
-      const baseUrl = `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}`;
-      icsUrl = `${baseUrl}/api/ics/${id}`;
-      
-      // Track usage metrics
       await trackDailyUsage({
         timestamp: new Date().toISOString(),
         timezone: tz,
         hasLocation: !!location,
         eventType: inferEventType(title, description)
       });
-      
-    } catch (kvError) {
-      console.error("Vercel KV Error:", kvError.message);
-      // If KV fails, the Apple link will be a dead link, but the block won't crash.
-      // This is better than the whole plugin failing.
+    } catch (analyticsError) {
+      console.error("Analytics tracking error:", analyticsError.message);
     }
 
     const formatDateForGoogle = (dt) => dt.toUTC().toFormat("yyyyMMdd'T'HHmmss'Z'");
