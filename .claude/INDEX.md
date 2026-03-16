@@ -8,7 +8,8 @@ Quick overview of all development sessions with brief summaries and status indic
 
 | Date | Session | Type | Status | Summary |
 |------|---------|------|--------|---------|
-| 260316.1030 | [US Timezone Date Fix](./sessions/260316.1030-us-timezone-date-fix.md) | bugfix | ✅ |
+| 260316.1700 | [Cross-TZ Date Fix](./sessions/260316.1700-cross-tz-date-fix.md) | bugfix | ✅ | Fixed browser TZ ≠ account TZ date-shift (Kirstin v2), added learnings.md + CLAUDE.md |
+| 260316.1030 | [US Timezone Date Fix](./sessions/260316.1030-us-timezone-date-fix.md) | bugfix | ✅ | Fixed midnight-UTC date-shift for US users, migrated to stateless ICS |
 
 ### February
 

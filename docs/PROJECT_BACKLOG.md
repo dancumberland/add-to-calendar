@@ -1,6 +1,6 @@
 # Project Backlog
 
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-03-16
 **Session Context**: See [.claude/INDEX.md](../.claude/INDEX.md)
 
 ---
@@ -120,6 +120,15 @@ Brisbane/Queensland isn't in Kit's timezone dropdown. Drafted feature request to
 ---
 
 ---
+
+## Completed (Mar 16, 2026)
+
+✅ Fixed browser TZ ≠ account TZ date-shift bug — max(UTC date, target-TZ date) handles all three Kit date picker modes
+✅ Fixed midnight-UTC date-shift bug for US/western users
+✅ Migrated ICS serving from Vercel KV to stateless URL generation
+✅ Added 4 regression tests (16/16 total passing)
+✅ Created project CLAUDE.md and learnings.md for institutional memory
+✅ Updated test count: 12 → 16 tests
 
 ## Completed (Feb 16, 2026)
 
