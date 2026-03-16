@@ -458,22 +458,40 @@ export default async function handler(req, res) {
     const ianaTimezone = mapTimezoneToIANA(tz);
     console.log('  timezone (mapped to IANA):', ianaTimezone);
 
-    // The date picker returns a full ISO string representing midnight in the USER'S BROWSER timezone.
-    // For example, a Brisbane user (GMT+10) selecting Feb 5 gets: "2026-02-04T14:00:00.000Z"
-    // (Feb 5 00:00 Brisbane = Feb 4 14:00 UTC)
+    // Kit's date picker behavior varies:
     //
-    // To get the correct date, we parse the ISO as UTC, convert to the TARGET timezone,
-    // and extract the date from that. This works for both eastern (ahead of UTC) and
-    // western (behind UTC) timezones because we're interpreting the moment in context.
+    // Mode A — "Midnight-local-as-UTC": The picker sends midnight in the user's BROWSER
+    //   timezone encoded as UTC. A Brisbane (UTC+10) user selecting Feb 5 sends
+    //   "2026-02-04T14:00:00.000Z" (Feb 5 00:00 AEST = Feb 4 14:00 UTC).
+    //   → Non-midnight UTC time → convert UTC→target TZ to recover the intended date.
+    //
+    // Mode B — "Date-only or midnight-UTC": The picker sends a plain date ("2026-03-18")
+    //   or midnight UTC ("2026-03-18T00:00:00.000Z"). The UTC date IS the intended date.
+    //   → Midnight UTC or no time component → use the UTC date directly.
+    //
+    // Without Mode B handling, US/western users get dates shifted back one day:
+    //   "2026-03-18T00:00:00Z" → Eastern (UTC-4) → March 17 20:00 → wrong date.
     const utcMoment = DateTime.fromISO(dateISO, { zone: 'utc' });
-    const dateInTargetTz = utcMoment.setZone(ianaTimezone);
-    const datePart = dateInTargetTz.toISODate();
-    
+    const isDateOnly = !dateISO.includes('T');
+    const isMidnightUTC = utcMoment.hour === 0 && utcMoment.minute === 0 && utcMoment.second === 0;
+
+    let datePart;
+    if (isDateOnly || isMidnightUTC) {
+      // Plain date or midnight UTC — the UTC date IS the intended date
+      datePart = utcMoment.toISODate();
+    } else {
+      // Non-midnight UTC — date picker sent midnight-in-local-time as UTC
+      // Convert to target timezone to recover the intended date
+      const dateInTargetTz = utcMoment.setZone(ianaTimezone);
+      datePart = dateInTargetTz.toISODate();
+    }
+
     console.log('🔍 TIMEZONE DEBUG - Date parsing:');
+    console.log('  dateISO raw:', dateISO);
+    console.log('  isDateOnly:', isDateOnly, '| isMidnightUTC:', isMidnightUTC);
     console.log('  utcMoment:', utcMoment.toString());
-    console.log('  dateInTargetTz:', dateInTargetTz.toString());
-    console.log('  datePart (extracted from target TZ):', datePart);
-    console.log('  Comparison - UTC date:', utcMoment.toISODate(), 'vs Target TZ date:', datePart);
+    console.log('  datePart (final):', datePart);
+    console.log('  UTC date:', utcMoment.toISODate(), '| mode:', isDateOnly || isMidnightUTC ? 'direct' : 'tz-convert');
 
     // Construct a parseable 12-hour format string
     const fullStartString = `${datePart} ${start_time} ${start_ampm}`;

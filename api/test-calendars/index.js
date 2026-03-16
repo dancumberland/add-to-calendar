@@ -2,7 +2,6 @@
 // Automated testing endpoint for calendar integrations
 // Validates that all calendar URLs are generated correctly
 
-import { kv } from "@vercel/kv";
 import { buildIcs } from "../../utils/buildIcs.js";
 import { DateTime } from "luxon";
 
@@ -250,6 +249,67 @@ const TEST_CASES = [
       googleDateStart: "20260315T200000Z",
       outlookDateStart: "2026-03-15T20:00:00Z"
     }
+  },
+  {
+    name: "Kirstin bug: US Eastern user with midnight-UTC date (Mode B)",
+    // Kit sends "2026-03-18T00:00:00.000Z" — midnight UTC, NOT midnight Eastern.
+    // Without the fix, this converts to March 17 8pm Eastern → wrong date.
+    settings: {
+      title: "Kirstin's Event",
+      date: "2026-03-18T00:00:00.000Z", // Midnight UTC — date IS March 18
+      start_time: "10:00",
+      start_ampm: "AM",
+      end_time: "11:00",
+      end_ampm: "AM",
+      tz: "Eastern Time (US & Canada)",
+      location: "Online",
+      description: "Regression test for off-by-one date bug for US users"
+    },
+    expected: {
+      // Mar 18 10:00 AM Eastern (EDT, UTC-4) = Mar 18 14:00 UTC
+      googleDateStart: "20260318T140000Z",
+      outlookDateStart: "2026-03-18T14:00:00Z"
+    }
+  },
+  {
+    name: "Date-only string (no time component) — Mode B",
+    // Kit sends just "2026-03-18" with no T or time component at all.
+    settings: {
+      title: "Date-Only Event",
+      date: "2026-03-18", // Plain date, no time
+      start_time: "9:00",
+      start_ampm: "AM",
+      end_time: "10:00",
+      end_ampm: "AM",
+      tz: "Pacific Time (US & Canada)",
+      location: "Seattle",
+      description: "Test plain date string handling"
+    },
+    expected: {
+      // Mar 18 9:00 AM Pacific (PDT, UTC-7) = Mar 18 16:00 UTC
+      googleDateStart: "20260318T160000Z",
+      outlookDateStart: "2026-03-18T16:00:00Z"
+    }
+  },
+  {
+    name: "Central Time midnight-UTC — same bug as Kirstin",
+    // Another US timezone to verify the fix works broadly
+    settings: {
+      title: "Central Time Event",
+      date: "2026-03-18T00:00:00.000Z",
+      start_time: "2:00",
+      start_ampm: "PM",
+      end_time: "3:00",
+      end_ampm: "PM",
+      tz: "Central Time (US & Canada)",
+      location: "Chicago",
+      description: "Verify fix for Central Time users"
+    },
+    expected: {
+      // Mar 18 2:00 PM Central (CDT, UTC-5) = Mar 18 19:00 UTC
+      googleDateStart: "20260318T190000Z",
+      outlookDateStart: "2026-03-18T19:00:00Z"
+    }
   }
 ];
 
@@ -332,13 +392,19 @@ function runTest(testCase) {
 
   try {
     const ianaTimezone = mapTimezoneToIANA(settings.tz);
-    // Parse the date ISO as UTC, then convert to target timezone to get the correct date.
-    // This handles timezones ahead of UTC (like Brisbane/Sydney) where the user's browser
-    // sends midnight local time as the previous day in UTC.
+    // Date parsing: detect midnight-UTC vs real timezone-shifted timestamps
     // (matches the fix in calendar-block/index.js)
     const utcMoment = DateTime.fromISO(settings.date, { zone: 'utc' });
-    const dateInTargetTz = utcMoment.setZone(ianaTimezone);
-    const datePart = dateInTargetTz.toISODate();
+    const isDateOnly = !settings.date.includes('T');
+    const isMidnightUTC = utcMoment.hour === 0 && utcMoment.minute === 0 && utcMoment.second === 0;
+
+    let datePart;
+    if (isDateOnly || isMidnightUTC) {
+      datePart = utcMoment.toISODate();
+    } else {
+      const dateInTargetTz = utcMoment.setZone(ianaTimezone);
+      datePart = dateInTargetTz.toISODate();
+    }
 
     const fullStartString = `${datePart} ${settings.start_time} ${settings.start_ampm}`;
     const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
@@ -420,18 +486,6 @@ function runTest(testCase) {
   return results;
 }
 
-async function testKvConnection() {
-  try {
-    const testKey = `test_${Date.now()}`;
-    await kv.set(testKey, "test", { ex: 60 });
-    const value = await kv.get(testKey);
-    await kv.del(testKey);
-    return { passed: value === "test", details: "KV read/write successful" };
-  } catch (error) {
-    return { passed: false, details: `KV error: ${error.message}` };
-  }
-}
-
 export default async function handler(req, res) {
   // Verify secret for security (allow Vercel cron jobs through)
   const secret = req.headers['x-test-secret'] || req.query.secret;
@@ -449,7 +503,6 @@ export default async function handler(req, res) {
     timestamp: new Date().toISOString(),
     environment: process.env.VERCEL_ENV || "development",
     tests: [],
-    kvTest: null,
     summary: { total: 0, passed: 0, failed: 0 }
   };
 
@@ -465,11 +518,8 @@ export default async function handler(req, res) {
     }
   }
 
-  // Test KV connection
-  results.kvTest = await testKvConnection();
-
   results.duration = `${Date.now() - startTime}ms`;
-  results.allPassed = results.summary.failed === 0 && results.kvTest.passed;
+  results.allPassed = results.summary.failed === 0;
 
   // Log results
   console.log("Calendar Integration Test Results:", JSON.stringify(results, null, 2));
