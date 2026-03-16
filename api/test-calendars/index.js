@@ -310,6 +310,29 @@ const TEST_CASES = [
       googleDateStart: "20260318T190000Z",
       outlookDateStart: "2026-03-18T19:00:00Z"
     }
+  },
+  {
+    name: "Browser TZ ≠ Account TZ: Central browser, Pacific account (Kirstin bug v2)",
+    // Kirstin is in Central Time but manages a client's Kit account set to Pacific.
+    // Kit sends midnight Central as UTC: 2026-03-18T05:00:00.000Z (CDT = UTC-5)
+    // Without the max() fix, this converts to Pacific → Mar 17 10pm → wrong date.
+    // With max(utcDate, tzDate) = max(Mar 18, Mar 17) = Mar 18 ✓
+    settings: {
+      title: "Cross-TZ Event",
+      date: "2026-03-18T05:00:00.000Z",
+      start_time: "10:00",
+      start_ampm: "AM",
+      end_time: "11:00",
+      end_ampm: "AM",
+      tz: "America/Los_Angeles",
+      location: "Online",
+      description: "Regression test for browser TZ ≠ account TZ"
+    },
+    expected: {
+      // Mar 18 10:00 AM Pacific (PDT, UTC-7) = Mar 18 17:00 UTC
+      googleDateStart: "20260318T170000Z",
+      outlookDateStart: "2026-03-18T17:00:00Z"
+    }
   }
 ];
 
@@ -402,8 +425,11 @@ function runTest(testCase) {
     if (isDateOnly || isMidnightUTC) {
       datePart = utcMoment.toISODate();
     } else {
+      // Take the later of UTC date and target-TZ date to handle browser TZ ≠ account TZ
       const dateInTargetTz = utcMoment.setZone(ianaTimezone);
-      datePart = dateInTargetTz.toISODate();
+      const utcDate = utcMoment.toISODate();
+      const tzDate = dateInTargetTz.toISODate();
+      datePart = utcDate > tzDate ? utcDate : tzDate;
     }
 
     const fullStartString = `${datePart} ${settings.start_time} ${settings.start_ampm}`;

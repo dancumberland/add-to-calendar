@@ -481,9 +481,11 @@ export default async function handler(req, res) {
       datePart = utcMoment.toISODate();
     } else {
       // Non-midnight UTC — date picker sent midnight-in-local-time as UTC
-      // Convert to target timezone to recover the intended date
+      // Take the later of UTC date and target-TZ date to handle browser TZ ≠ account TZ
       const dateInTargetTz = utcMoment.setZone(ianaTimezone);
-      datePart = dateInTargetTz.toISODate();
+      const utcDate = utcMoment.toISODate();
+      const tzDate = dateInTargetTz.toISODate();
+      datePart = utcDate > tzDate ? utcDate : tzDate;
     }
 
     console.log('🔍 TIMEZONE DEBUG - Date parsing:');
