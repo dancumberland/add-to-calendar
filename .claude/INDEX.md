@@ -4,6 +4,12 @@ Quick overview of all development sessions with brief summaries and status indic
 
 ## 2026 Sessions
 
+### March
+
+| Date | Session | Type | Status | Summary |
+|------|---------|------|--------|---------|
+| 260316.1030 | [US Timezone Date Fix](./sessions/260316.1030-us-timezone-date-fix.md) | bugfix | ✅ |
+
 ### February
 
 | Date | Session | Type | Status | Summary |
