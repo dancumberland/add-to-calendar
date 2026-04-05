@@ -381,6 +381,12 @@ function validateAmPm(ampm) {
 
 // Kit payload keys. Schema monitor alerts when Kit sends keys outside this set.
 // Update this list (and docs/KIT-DATE-SPEC.md) when Kit adds new fields.
+//
+// SCOPE: Detects key *additions* only. It does NOT detect:
+//   - Key removal (missing required keys fail at parse time, not schema monitor)
+//   - Semantic changes (same key, different value encoding — only corpus analysis catches these)
+//   - Encoding drift (e.g. date format change within the existing 'date' field)
+// For those failure modes, the corpus log + VPS health check are the detection layer.
 const KNOWN_SETTINGS_KEYS = [
   'title', 'date', 'start_time', 'start_ampm', 'end_time', 'end_ampm',
   'tz', 'location', 'description', 'background_color', 'text_color',
@@ -498,6 +504,11 @@ export default async function handler(req, res) {
     //   "2026-03-18T00:00:00Z" → Eastern (UTC-4) → March 17 20:00 → wrong date.
     const utcMoment = DateTime.fromISO(dateISO, { zone: 'utc' });
     const isDateOnly = !dateISO.includes('T');
+    // Mode B detection: UTC time is exactly midnight (00:00:00.000).
+    // Tolerance: sub-second jitter is safe (second === 0 passes even with ms offset).
+    // Not safe: if Kit ever sends 00:00:01Z or later, this routes to Mode A (date-off-by-one
+    // for UTC+ users). In practice Kit constructs dates from date values, not timestamps,
+    // so non-zero seconds are not expected. Validated: Kit sends .000Z exactly.
     const isMidnightUTC = utcMoment.hour === 0 && utcMoment.minute === 0 && utcMoment.second === 0;
 
     let datePart;

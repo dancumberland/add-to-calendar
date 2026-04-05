@@ -27,16 +27,26 @@ See `docs/KIT-DATE-SPEC.md` for the authoritative specification. Summary:
 
 **The `max()` is a tie-breaker, not the primary algorithm.** Primary: convert UTC timestamp to target TZ, extract date.
 
+### Mode B Boundary Tolerance (investigated 2026-04-05)
+
+The midnight-UTC check is `hour === 0 && minute === 0 && second === 0`.
+
+- **Sub-second jitter is safe**: `00:00:00.500Z` → second is still 0 → correctly detected as Mode B.
+- **Second-level jitter is NOT safe**: `00:00:01Z` → routes to Mode A → date off by 1 for UTC+ users.
+- **In practice**: Kit constructs Mode B dates from date values (Rails `Date.new(...).to_datetime.utc`), so second-level jitter is not expected. Validated: Kit sends `.000Z` exactly.
+- **Action**: Comment added to code documenting this tolerance. No code change needed.
+
 ---
 
 ## Observability System (added 2026-04-05)
 
 ### What's running
-- **Corpus log** (`calendar_block_request`): structured JSON on every request — raw Kit input, detected mode, resolved date. Also logs `calendar_block_error` on failure path.
-- **Schema monitor** (`kit_schema_change`): fires when Kit sends unknown payload keys. Sends Slack alert via `SLACK_WEBHOOK_URL`.
-- **VPS health check** (`scripts/vps-health-check.py`): weekly, 4 timezone scenarios, actually fetches ICS. Cron: Friday 7pm UTC.
+- **Corpus log** (`calendar_block_request`): structured JSON on every request — raw Kit input, detected mode, resolved date. Also logs `calendar_block_error` on failure path. **Requires Logtail log drain for 30-day retention — 1-hour retention without it.**
+- **Schema monitor** (`kit_schema_change`): fires when Kit sends unknown payload keys. Sends Slack alert via `SLACK_WEBHOOK_URL`. **Scope**: detects key additions only — NOT removal, semantic changes, or encoding drift.
+- **VPS health check** (`scripts/vps-health-check.py`): weekly, 4 timezone scenarios, actually fetches ICS. Deployed at `/home/claude/kit-calendar-health/health_check.py`. Cron: Friday 7pm UTC (verified running 2026-04-05).
 - **Canary** (`scripts/canary-test.js`): validates DTSTART date accuracy (not just structure). Run: `node scripts/canary-test.js`.
-- **CI gate** (`.github/workflows/integration-tests.yml`): HTTP integration tests on every push to main.
+- **CI gate** (`.github/workflows/integration-tests.yml`): HTTP integration tests on every push to main. **Requires VERCEL_TOKEN GitHub secret for SHA-bound testing — fails loudly without it.**
+- **Incident runbook**: `docs/INCIDENT_RUNBOOK.md` — what to do when each alert fires.
 
 ### When the corpus log fires an anomaly
 Signs to look for in Logtail (`event = "calendar_block_request"`):
