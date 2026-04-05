@@ -409,6 +409,140 @@ function mapTimezoneToIANA(kitTimezone) {
   return kitTimezone || 'UTC';
 }
 
+// ---------------------------------------------------------------------------
+// HTTP TEST CASES — actually hit the live endpoints over the network.
+// These catch bugs that unit tests miss (e.g., the double-decodeURIComponent
+// bug that broke Apple Calendar for % characters in descriptions).
+// ---------------------------------------------------------------------------
+const HTTP_TEST_CASES = [
+  {
+    name: "ICS endpoint — basic request",
+    params: { title: "Test Event", start: "2026-04-10T14:00:00.000Z", end: "2026-04-10T15:00:00.000Z" },
+    expect: { status: 200, hasVcalendar: true },
+  },
+  {
+    name: "ICS endpoint — description with % sign (regression: double-decode bug)",
+    params: {
+      title: "Health Check",
+      start: "2026-04-10T14:00:00.000Z",
+      end: "2026-04-10T15:00:00.000Z",
+      description: "Save 20% off — limited time!",
+    },
+    expect: { status: 200, hasVcalendar: true },
+  },
+  {
+    name: "ICS endpoint — special chars in title (&, ', \")",
+    params: {
+      title: "Q&A Session: \"Dan's\" talk",
+      start: "2026-04-10T14:00:00.000Z",
+      end: "2026-04-10T15:00:00.000Z",
+    },
+    expect: { status: 200, hasVcalendar: true },
+  },
+  {
+    name: "ICS endpoint — missing required params returns 400",
+    params: { title: "Test Event" }, // missing start and end
+    expect: { status: 400, hasVcalendar: false },
+  },
+  {
+    name: "Full pipeline: calendar-block POST → parse HTML → fetch ICS URL",
+    fullPipeline: true,
+    settings: {
+      title: "Full Pipeline Test",
+      date: "2026-04-15T00:00:00.000Z",
+      start_time: "10:00",
+      start_ampm: "AM",
+      end_time: "11:00",
+      end_ampm: "AM",
+      tz: "Eastern Time (US & Canada)",
+      location: "Online",
+      description: "Testing 100% of the pipeline",
+    },
+    expect: { icsStatus: 200, hasVcalendar: true },
+  },
+];
+
+async function runHttpTest(test, baseUrl) {
+  const result = { name: test.name, passed: true, errors: [], details: {}, httpTest: true };
+
+  try {
+    if (test.fullPipeline) {
+      // ---- Full pipeline: generate HTML, extract ICS URL, fetch it ----
+      const blockResp = await fetch(`${baseUrl}/api/calendar-block`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: test.settings }),
+      });
+      const blockData = await blockResp.json();
+
+      if (blockData.code === 500) {
+        result.passed = false;
+        result.errors.push(`calendar-block returned error: ${blockData.errors?.[0] || "unknown"}`);
+        return result;
+      }
+
+      const html = blockData.html || "";
+      const icsMatch = html.match(/href="(https?:\/\/[^"]+\/api\/ics[^"]+)"/);
+      if (!icsMatch) {
+        result.passed = false;
+        result.errors.push("ICS URL not found in calendar-block HTML response");
+        return result;
+      }
+
+      const icsUrl = icsMatch[1];
+      result.details.icsUrl = icsUrl;
+
+      const icsResp = await fetch(icsUrl);
+      result.details.icsStatus = icsResp.status;
+
+      if (icsResp.status !== 200) {
+        result.passed = false;
+        result.errors.push(`ICS fetch returned HTTP ${icsResp.status} (expected 200)`);
+        return result;
+      }
+
+      const icsBody = await icsResp.text();
+      if (!icsBody.includes("BEGIN:VCALENDAR") || !icsBody.includes("END:VCALENDAR")) {
+        result.passed = false;
+        result.errors.push("ICS response body missing BEGIN/END:VCALENDAR");
+      }
+      if (!icsBody.includes("BEGIN:VEVENT")) {
+        result.passed = false;
+        result.errors.push("ICS response body missing BEGIN:VEVENT");
+      }
+      result.details.icsValid = result.passed;
+
+    } else {
+      // ---- Direct ICS endpoint test ----
+      const params = new URLSearchParams(test.params);
+      const url = `${baseUrl}/api/ics?${params}`;
+      result.details.url = url;
+
+      const resp = await fetch(url);
+      result.details.status = resp.status;
+
+      if (resp.status !== test.expect.status) {
+        result.passed = false;
+        result.errors.push(`Expected HTTP ${test.expect.status}, got ${resp.status}`);
+        return result;
+      }
+
+      if (test.expect.hasVcalendar) {
+        const body = await resp.text();
+        if (!body.includes("BEGIN:VCALENDAR")) {
+          result.passed = false;
+          result.errors.push("Response body missing BEGIN:VCALENDAR");
+        }
+      }
+    }
+  } catch (e) {
+    result.passed = false;
+    result.errors.push(`Fetch exception: ${e.message}`);
+  }
+
+  return result;
+}
+
 function runTest(testCase) {
   const { name, settings, expected } = testCase;
   const results = { name, passed: true, errors: [], details: {} };
@@ -529,19 +663,28 @@ export default async function handler(req, res) {
     timestamp: new Date().toISOString(),
     environment: process.env.VERCEL_ENV || "development",
     tests: [],
-    summary: { total: 0, passed: 0, failed: 0 }
+    summary: { total: 0, passed: 0, failed: 0, unitTests: 0, httpTests: 0 }
   };
 
-  // Run all test cases
+  // Run unit tests (date parsing logic — inline, no HTTP)
   for (const testCase of TEST_CASES) {
     const result = runTest(testCase);
     results.tests.push(result);
     results.summary.total++;
-    if (result.passed) {
-      results.summary.passed++;
-    } else {
-      results.summary.failed++;
-    }
+    results.summary.unitTests++;
+    if (result.passed) results.summary.passed++;
+    else results.summary.failed++;
+  }
+
+  // Run HTTP tests (hit real endpoints over the network)
+  const baseUrl = `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}`;
+  const httpResults = await Promise.all(HTTP_TEST_CASES.map(t => runHttpTest(t, baseUrl)));
+  for (const result of httpResults) {
+    results.tests.push(result);
+    results.summary.total++;
+    results.summary.httpTests++;
+    if (result.passed) results.summary.passed++;
+    else results.summary.failed++;
   }
 
   results.duration = `${Date.now() - startTime}ms`;
