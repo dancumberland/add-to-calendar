@@ -417,6 +417,40 @@ export default async function handler(req, res) {
       alignment = "center"
     } = settings;
 
+    // ===== KIT BOUNDARY SCHEMA MONITOR =====
+    // Detects when Kit sends payload keys we've never seen — earliest possible catch point
+    // for a "Mode D" scenario where Kit changes their format before downstream logic fails.
+    const KNOWN_SETTINGS_KEYS = [
+      'title', 'date', 'start_time', 'start_ampm', 'end_time', 'end_ampm',
+      'tz', 'location', 'description', 'background_color', 'text_color',
+      'size', 'rounded_corners', 'alignment',
+    ];
+    const unknownKeys = Object.keys(settings).filter(k => !KNOWN_SETTINGS_KEYS.includes(k));
+    if (unknownKeys.length > 0) {
+      console.log(JSON.stringify({
+        event: 'kit_schema_change',
+        timestamp: new Date().toISOString(),
+        unknown_keys: unknownKeys,
+        settings_snapshot: settings,
+      }));
+      const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+      if (webhookUrl) {
+        fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            blocks: [{
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `⚠️ *Kit Calendar — Unknown payload keys detected*\nNew fields: \`${unknownKeys.join(', ')}\`\nKit may have changed their calendar block format. Check Vercel logs.`,
+              },
+            }],
+          }),
+        }).catch(e => console.error('Schema monitor alert failed:', e.message));
+      }
+    }
+
     // If settings are incomplete, return the placeholder HTML block
     if (!title || !dateISO || !start_time || !start_ampm || !end_time || !end_ampm || !tz) {
       const placeholderHtml = `
@@ -704,6 +738,26 @@ export default async function handler(req, res) {
         </tr>
       </table>
     `;
+
+    // ===== CORPUS LOG =====
+    // Structured log of every production request — builds the observability corpus
+    // for Kit's undocumented input space. 30-day retention via Vercel log drain.
+    // Use this to audit for silent failures: periodically check that resolved dates
+    // look sane relative to the raw input.
+    const detectedMode = isDateOnly ? 'date-only' : isMidnightUTC ? 'midnight-utc' : 'midnight-local-as-utc';
+    console.log(JSON.stringify({
+      event: 'calendar_block_request',
+      timestamp: new Date().toISOString(),
+      raw_date_iso: dateISO,
+      detected_mode: detectedMode,
+      timezone_raw: tz,
+      timezone_iana: ianaTimezone,
+      resolved_date: datePart,
+      start_time: `${start_time} ${start_ampm}`,
+      end_time: `${end_time} ${end_ampm}`,
+      start_utc: startDateTime.toUTC().toISO(),
+      end_utc: endDateTime.toUTC().toISO(),
+    }));
 
     res.setHeader("Content-Type", "application/json");
     return res.status(200).json({ code: 200, html: html });

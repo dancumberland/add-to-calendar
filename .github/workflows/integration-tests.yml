@@ -1,0 +1,42 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Vercel deployment
+        # Vercel deploys typically complete within 60s for this project
+        run: sleep 60
+
+      - name: Run integration tests
+        run: |
+          echo "Running Kit Calendar integration tests..."
+          RESPONSE=$(curl -sf \
+            -H "x-test-secret: ${{ secrets.WEEKLY_REPORT_SECRET }}" \
+            "https://kit-app-build.vercel.app/api/test-calendars")
+
+          echo "$RESPONSE" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          passed = data.get('passed', 0)
+          failed = data.get('failed', 0)
+          total = data.get('total', 0)
+          http_passed = data.get('httpPassed', 0)
+          http_failed = data.get('httpFailed', 0)
+          print(f'Unit tests: {passed}/{total} passed')
+          print(f'HTTP tests: {http_passed}/{http_passed + http_failed} passed')
+          if failed > 0 or http_failed > 0:
+              print('FAILURES DETECTED:')
+              for r in data.get('results', []):
+                  if r.get('status') != 'PASS':
+                      print(f'  FAIL: {r[\"name\"]}')
+                      if r.get('error'):
+                          print(f'        {r[\"error\"]}')
+              sys.exit(1)
+          print('All tests passed.')
+          "
