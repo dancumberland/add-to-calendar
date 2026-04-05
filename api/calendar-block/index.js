@@ -2,12 +2,15 @@ import { trackDailyUsage } from "../../utils/analytics.js";
 import { DateTime } from "luxon";
 import { Logtail } from "@logtail/node";
 
-// Corpus logger — sends structured events to BetterStack Logtail when
-// LOGTAIL_SOURCE_TOKEN is set. Falls back to console.log (Vercel 1-hour retention)
-// if the token is absent so the function never fails due to a missing env var.
-// LOGTAIL_ENDPOINT: source-specific host from BetterStack source details
-// (e.g. https://s2343153.eu-nbg-2.betterstackdata.com). Required because the
-// generic in.logs.betterstack.com endpoint doesn't accept HTTP source tokens.
+// Corpus logger — dual-writes to BetterStack (3-day retention, searchable UI)
+// and VPS receiver (unlimited retention, local JSONL files).
+//
+// BetterStack: LOGTAIL_SOURCE_TOKEN + LOGTAIL_ENDPOINT (source-specific host,
+//   e.g. https://s2343153.eu-nbg-2.betterstackdata.com — generic endpoint returns 401)
+// VPS: VPS_LOG_URL (e.g. http://159.203.139.119:9201/log) + VPS_LOG_SECRET
+//   Logs written to /home/claude/kit-calendar-log-receiver/logs/corpus-YYYY-MM-DD.jsonl
+//
+// Both are fire-and-forget. Falls back to console.log if neither is configured.
 const _logtail = process.env.LOGTAIL_SOURCE_TOKEN
   ? new Logtail(process.env.LOGTAIL_SOURCE_TOKEN, {
       endpoint: process.env.LOGTAIL_ENDPOINT || 'https://in.logs.betterstack.com',
@@ -15,9 +18,28 @@ const _logtail = process.env.LOGTAIL_SOURCE_TOKEN
   : null;
 
 function corpusLog(payload) {
+  let sent = false;
+
   if (_logtail) {
     _logtail.log(payload.event, 'info', payload).catch(() => {});
-  } else {
+    sent = true;
+  }
+
+  if (process.env.VPS_LOG_URL) {
+    fetch(process.env.VPS_LOG_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.VPS_LOG_SECRET
+          ? { Authorization: `Bearer ${process.env.VPS_LOG_SECRET}` }
+          : {}),
+      },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+    sent = true;
+  }
+
+  if (!sent) {
     console.log(JSON.stringify(payload));
   }
 }
