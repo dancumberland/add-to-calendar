@@ -1,5 +1,26 @@
 import { trackDailyUsage } from "../../utils/analytics.js";
 import { DateTime } from "luxon";
+import { Logtail } from "@logtail/node";
+
+// Corpus logger — sends structured events to BetterStack Logtail when
+// LOGTAIL_SOURCE_TOKEN is set. Falls back to console.log (Vercel 1-hour retention)
+// if the token is absent so the function never fails due to a missing env var.
+// LOGTAIL_ENDPOINT: source-specific host from BetterStack source details
+// (e.g. https://s2343153.eu-nbg-2.betterstackdata.com). Required because the
+// generic in.logs.betterstack.com endpoint doesn't accept HTTP source tokens.
+const _logtail = process.env.LOGTAIL_SOURCE_TOKEN
+  ? new Logtail(process.env.LOGTAIL_SOURCE_TOKEN, {
+      endpoint: process.env.LOGTAIL_ENDPOINT || 'https://in.logs.betterstack.com',
+    })
+  : null;
+
+function corpusLog(payload) {
+  if (_logtail) {
+    _logtail.log(payload.event, 'info', payload).catch(() => {});
+  } else {
+    console.log(JSON.stringify(payload));
+  }
+}
 
 // Complete timezone mapping based on Rails ActiveSupport::TimeZone
 // Kit is a Rails app, so its timezone picker uses these exact names.
@@ -436,12 +457,12 @@ export default async function handler(req, res) {
     // for a "Mode D" scenario where Kit changes their format before downstream logic fails.
     const unknownKeys = Object.keys(settings).filter(k => !KNOWN_SETTINGS_KEYS.includes(k));
     if (unknownKeys.length > 0) {
-      console.log(JSON.stringify({
+      corpusLog({
         event: 'kit_schema_change',
         timestamp: new Date().toISOString(),
         unknown_keys: unknownKeys,
         settings_snapshot: settings,
-      }));
+      });
       const webhookUrl = process.env.SLACK_WEBHOOK_URL;
       if (webhookUrl) {
         fetch(webhookUrl, {
@@ -710,7 +731,7 @@ export default async function handler(req, res) {
     // Use this to audit for silent failures: periodically check that resolved dates
     // look sane relative to the raw input.
     const detectedMode = isDateOnly ? 'date-only' : isMidnightUTC ? 'midnight-utc' : 'midnight-local-as-utc';
-    console.log(JSON.stringify({
+    corpusLog({
       event: 'calendar_block_request',
       timestamp: new Date().toISOString(),
       raw_date_iso: dateISO,
@@ -722,7 +743,7 @@ export default async function handler(req, res) {
       end_time: `${end_time} ${end_ampm}`,
       start_utc: startDateTime.toUTC().toISO(),
       end_utc: endDateTime.toUTC().toISO(),
-    }));
+    });
 
     res.setHeader("Content-Type", "application/json");
     return res.status(200).json({ code: 200, html: html });
@@ -731,7 +752,7 @@ export default async function handler(req, res) {
     console.error(err);
     // Error-path corpus log — captures raw inputs even when processing fails.
     // Without this, failed requests are invisible in the corpus (silent failure blind spot).
-    console.log(JSON.stringify({
+    corpusLog({
       event: 'calendar_block_error',
       timestamp: new Date().toISOString(),
       error: err.message,
@@ -739,7 +760,7 @@ export default async function handler(req, res) {
       timezone_raw: rawSettings.tz,
       start_time: rawSettings.start_time,
       start_ampm: rawSettings.start_ampm,
-    }));
+    });
     res.setHeader("Content-Type", "application/json");
     // Return a 200 OK status with a JSON body that indicates the error, as per Kit docs.
     return res.status(200).json({ code: 500, errors: [err.message] });

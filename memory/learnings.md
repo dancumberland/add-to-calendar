@@ -41,7 +41,7 @@ The midnight-UTC check is `hour === 0 && minute === 0 && second === 0`.
 ## Observability System (added 2026-04-05)
 
 ### What's running
-- **Corpus log** (`calendar_block_request`): structured JSON on every request — raw Kit input, detected mode, resolved date. Also logs `calendar_block_error` on failure path. **Requires Logtail log drain for 30-day retention — 1-hour retention without it.**
+- **Corpus log** (`calendar_block_request`): structured JSON on every request — raw Kit input, detected mode, resolved date. Also logs `calendar_block_error` on failure path. Sent directly to BetterStack via `@logtail/node` SDK (not a Vercel log drain — Hobby plan doesn't support drains). **3-day retention on free BetterStack tier** (upgrade to Basic $24/mo for 30-day). Env vars: `LOGTAIL_SOURCE_TOKEN`, `LOGTAIL_ENDPOINT` (source-specific host, required — generic `in.logs.betterstack.com` returns 401 for HTTP sources). BetterStack source ID: 2343153, token: `mscemTgFXbq7cm8vzZXG2YFF`, host: `s2343153.eu-nbg-2.betterstackdata.com`.
 - **Schema monitor** (`kit_schema_change`): fires when Kit sends unknown payload keys. Sends Slack alert via `SLACK_WEBHOOK_URL`. **Scope**: detects key additions only — NOT removal, semantic changes, or encoding drift.
 - **VPS health check** (`scripts/vps-health-check.py`): weekly, 4 timezone scenarios, actually fetches ICS. Deployed at `/home/claude/kit-calendar-health/health_check.py`. Cron: Friday 7pm UTC (verified running 2026-04-05).
 - **Canary** (`scripts/canary-test.js`): validates DTSTART date accuracy (not just structure). Run: `node scripts/canary-test.js`.
