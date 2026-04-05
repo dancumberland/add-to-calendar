@@ -646,6 +646,49 @@ function runTest(testCase) {
   return results;
 }
 
+async function sendFailureAlert(results) {
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.error("SLACK_WEBHOOK_URL not set — cannot send test failure alert");
+    return;
+  }
+
+  const failedTests = results.tests.filter(t => !t.passed);
+  const lines = failedTests.map(t =>
+    `• *${t.name}*\n  ${t.errors.join("\n  ")}`
+  ).join("\n");
+
+  const payload = {
+    blocks: [
+      {
+        type: "header",
+        text: { type: "plain_text", text: "🚨 Kit Calendar — Test Failures Detected", emoji: true },
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*${failedTests.length} of ${results.summary.total} tests failed* (${results.duration})\n\n${lines}`,
+        },
+      },
+      {
+        type: "context",
+        elements: [{ type: "mrkdwn", text: `Env: ${results.environment} · ${results.timestamp}` }],
+      },
+    ],
+  };
+
+  const resp = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Slack webhook returned ${resp.status}`);
+  }
+}
+
 export default async function handler(req, res) {
   // Verify secret for security (allow Vercel cron jobs through)
   const secret = req.headers['x-test-secret'] || req.query.secret;
@@ -692,6 +735,13 @@ export default async function handler(req, res) {
 
   // Log results
   console.log("Calendar Integration Test Results:", JSON.stringify(results, null, 2));
+
+  // Alert on failures
+  if (!results.allPassed) {
+    await sendFailureAlert(results).catch(e =>
+      console.error("Failed to send test failure alert:", e.message)
+    );
+  }
 
   // Return results
   res.setHeader("Content-Type", "application/json");

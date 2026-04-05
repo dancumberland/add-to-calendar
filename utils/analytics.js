@@ -67,10 +67,13 @@ export async function trackDailyUsage(data) {
 // Note: Uses UTC for week boundaries (see design decision at top of file)
 export async function aggregateWeeklyData(targetDate = null) {
   try {
-    // Use provided date or today (in UTC for consistency)
+    // Use provided date or default to the last fully completed week.
+    // Without a targetDate, always aggregate the previous week (ending last Sunday)
+    // so that Saturday and Sunday data is included. The weekly-report cron runs on
+    // Friday — targeting the current week would miss Sat/Sun.
     const now = targetDate
       ? DateTime.fromISO(targetDate, { zone: 'utc' })
-      : DateTime.utc();
+      : DateTime.utc().minus({ weeks: 1 });
 
     // Get the week ending date (Sunday)
     const weekEnd = now.endOf('week');
