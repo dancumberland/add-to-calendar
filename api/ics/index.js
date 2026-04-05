@@ -20,9 +20,9 @@ export default async function handler(req, res) {
   }
 
   const icsText = buildIcs({
-    title: decodeURIComponent(title),
-    description: description ? decodeURIComponent(description) : "",
-    location: location ? decodeURIComponent(location) : "",
+    title,
+    description: description || "",
+    location: location || "",
     start: startDate,
     end: endDate,
   });
