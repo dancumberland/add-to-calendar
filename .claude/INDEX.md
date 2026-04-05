@@ -4,6 +4,12 @@ Quick overview of all development sessions with brief summaries and status indic
 
 ## 2026 Sessions
 
+### April
+
+| Date | Session | Type | Status | Summary |
+|------|---------|------|--------|---------|
+| 260405.0800 | [Observability + VPS Logging](./sessions/260405.0800-observability-vps-logging.md) | infrastructure | ✅ | Fixed Apple Calendar 500 error, built corpus logging/schema monitor/CI gate/health check, replaced BetterStack with self-hosted VPS log receiver (unlimited retention), closed BetterStack account |
+
 ### March
 
 | Date | Session | Type | Status | Summary |

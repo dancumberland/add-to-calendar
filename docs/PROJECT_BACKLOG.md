@@ -1,6 +1,6 @@
 # Project Backlog
 
-**Last Updated**: 2026-03-16
+**Last Updated**: 2026-04-05
 **Session Context**: See [.claude/INDEX.md](../.claude/INDEX.md)
 
 ---
@@ -120,6 +120,19 @@ Brisbane/Queensland isn't in Kit's timezone dropdown. Drafted feature request to
 ---
 
 ---
+
+## Completed (Apr 5, 2026)
+
+✅ Fixed Apple Calendar 500 error — removed double decodeURIComponent in ICS endpoint (bug #4)
+✅ Built corpus logging system — every Kit request logged to VPS (unlimited retention, JSONL)
+✅ Added schema monitor — Slack alert when Kit sends unknown payload keys
+✅ Added VPS health check — 4 timezone scenarios, runs Friday 7pm UTC, fetches real ICS
+✅ Added canary test — validates DTSTART date accuracy
+✅ Added CI gate — HTTP integration tests on every push to main
+✅ Replaced BetterStack with self-hosted VPS log receiver, closed BetterStack account
+✅ Documented Mode B boundary tolerance (sub-second jitter safe, second-level not)
+✅ Created incident runbook (docs/INCIDENT_RUNBOOK.md)
+✅ Drafted reply to Ballantyne (Paige Brunton) re: Apple Calendar fix
 
 ## Completed (Mar 16, 2026)
 
