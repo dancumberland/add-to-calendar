@@ -4,7 +4,6 @@
   "type": "module",
   "description": "Backend for Kit Add-to-Calendar content-block plugin",
   "dependencies": {
-    "@logtail/node": "^0.5.8",
     "@vercel/kv": "^1.0.1",
     "dotenv": "^17.2.1",
     "luxon": "^3.4.4",

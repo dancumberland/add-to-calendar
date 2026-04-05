@@ -1,30 +1,11 @@
 import { trackDailyUsage } from "../../utils/analytics.js";
 import { DateTime } from "luxon";
-import { Logtail } from "@logtail/node";
 
-// Corpus logger — dual-writes to BetterStack (3-day retention, searchable UI)
-// and VPS receiver (unlimited retention, local JSONL files).
-//
-// BetterStack: LOGTAIL_SOURCE_TOKEN + LOGTAIL_ENDPOINT (source-specific host,
-//   e.g. https://s2343153.eu-nbg-2.betterstackdata.com — generic endpoint returns 401)
-// VPS: VPS_LOG_URL (e.g. http://159.203.139.119:9201/log) + VPS_LOG_SECRET
-//   Logs written to /home/claude/kit-calendar-log-receiver/logs/corpus-YYYY-MM-DD.jsonl
-//
-// Both are fire-and-forget. Falls back to console.log if neither is configured.
-const _logtail = process.env.LOGTAIL_SOURCE_TOKEN
-  ? new Logtail(process.env.LOGTAIL_SOURCE_TOKEN, {
-      endpoint: process.env.LOGTAIL_ENDPOINT || 'https://in.logs.betterstack.com',
-    })
-  : null;
-
+// Corpus logger — POSTs to VPS receiver (unlimited retention, JSONL files).
+// VPS_LOG_URL: http://159.203.139.119:9201/log
+// Logs at: /home/claude/kit-calendar-log-receiver/logs/corpus-YYYY-MM-DD.jsonl
+// Falls back to console.log if VPS_LOG_URL is not set.
 function corpusLog(payload) {
-  let sent = false;
-
-  if (_logtail) {
-    _logtail.log(payload.event, 'info', payload).catch(() => {});
-    sent = true;
-  }
-
   if (process.env.VPS_LOG_URL) {
     fetch(process.env.VPS_LOG_URL, {
       method: 'POST',
@@ -36,10 +17,7 @@ function corpusLog(payload) {
       },
       body: JSON.stringify(payload),
     }).catch(() => {});
-    sent = true;
-  }
-
-  if (!sent) {
+  } else {
     console.log(JSON.stringify(payload));
   }
 }
