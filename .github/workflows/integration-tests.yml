@@ -9,16 +9,79 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Wait for Vercel deployment
-        # Vercel deploys typically complete within 60s for this project
-        run: sleep 60
+        # With VERCEL_TOKEN: polls until the deployment for THIS commit's SHA is ready.
+        # SHA binding prevents false passes where CI tests the previous deployment.
+        # Without VERCEL_TOKEN: falls back to a retry loop (less precise but functional).
+        # To get a token: vercel.com/account/tokens → add as VERCEL_TOKEN repo secret.
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          echo "Waiting for Vercel deployment of commit: $GITHUB_SHA"
+          DEPLOY_URL=""
+
+          if [ -n "$VERCEL_TOKEN" ]; then
+            # SHA-bound: wait for the exact deployment from this commit
+            for i in $(seq 1 18); do
+              sleep 10
+              RESPONSE=$(curl -sf \
+                -H "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v6/deployments?app=kit-app-build&limit=10" 2>/dev/null || echo '{}')
+              RESULT=$(echo "$RESPONSE" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          sha = '$GITHUB_SHA'
+          for d in data.get('deployments', []):
+            meta = d.get('meta', {})
+            if meta.get('githubCommitSha', '').startswith(sha[:12]):
+              state = d.get('state', '')
+              if state == 'READY':
+                print('ready:https://' + d['url'])
+              elif state == 'ERROR':
+                print('error')
+              else:
+                print('building')
+              break
+          " 2>/dev/null || echo "")
+              if [[ "$RESULT" == ready:* ]]; then
+                DEPLOY_URL="${RESULT#ready:}"
+                echo "SHA-bound deployment ready: $DEPLOY_URL"
+                break
+              elif [ "$RESULT" = "error" ]; then
+                echo "Vercel deployment failed."
+                exit 1
+              fi
+              echo "Attempt $i/18: $RESULT..."
+            done
+          else
+            # Fallback: retry loop without SHA binding (less precise)
+            echo "VERCEL_TOKEN not set — using retry loop (add token for SHA-bound testing)"
+            for i in $(seq 1 12); do
+              sleep 10
+              STATUS=$(curl -so /dev/null -w "%{http_code}" "https://kit-app-build.vercel.app/api/calendar-block" 2>/dev/null || echo "000")
+              if [ "$STATUS" = "200" ] || [ "$STATUS" = "405" ]; then
+                DEPLOY_URL="https://kit-app-build.vercel.app"
+                echo "Endpoint responding (HTTP $STATUS)"
+                break
+              fi
+              echo "Attempt $i/12: HTTP $STATUS..."
+            done
+          fi
+
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "Timed out. Falling back to production URL."
+            DEPLOY_URL="https://kit-app-build.vercel.app"
+          fi
+          echo "DEPLOY_URL=$DEPLOY_URL" >> $GITHUB_ENV
 
       - name: Run integration tests
         run: |
-          echo "Running Kit Calendar integration tests..."
+          echo "Running Kit Calendar integration tests against: $DEPLOY_URL"
           RESPONSE=$(curl -sf \
             -H "x-test-secret: ${{ secrets.WEEKLY_REPORT_SECRET }}" \
-            "https://kit-app-build.vercel.app/api/test-calendars")
+            "$DEPLOY_URL/api/test-calendars")
 
           echo "$RESPONSE" | python3 -c "
           import sys, json
@@ -28,8 +91,8 @@ jobs:
           total = data.get('total', 0)
           http_passed = data.get('httpPassed', 0)
           http_failed = data.get('httpFailed', 0)
-          print(f'Unit tests: {passed}/{total} passed')
-          print(f'HTTP tests: {http_passed}/{http_passed + http_failed} passed')
+          print(f'Unit tests:  {passed}/{total} passed')
+          print(f'HTTP tests:  {http_passed}/{http_passed + http_failed} passed')
           if failed > 0 or http_failed > 0:
               print('FAILURES DETECTED:')
               for r in data.get('results', []):

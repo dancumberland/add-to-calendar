@@ -379,6 +379,18 @@ function validateAmPm(ampm) {
   return ampm && ['AM', 'PM', 'am', 'pm'].includes(ampm);
 }
 
+// Kit payload keys. Schema monitor alerts when Kit sends keys outside this set.
+// Update this list (and docs/KIT-DATE-SPEC.md) when Kit adds new fields.
+const KNOWN_SETTINGS_KEYS = [
+  'title', 'date', 'start_time', 'start_ampm', 'end_time', 'end_ampm',
+  'tz', 'location', 'description', 'background_color', 'text_color',
+  'size', 'rounded_corners', 'alignment',
+];
+
+// Debug logging — only emits when DEBUG=true in environment.
+// Never touches the structured corpus log entries.
+const debug = (...a) => process.env.DEBUG && console.log(...a);
+
 export default async function handler(req, res) {
   // ---- CORS ----
   if (req.method === "OPTIONS") {
@@ -389,16 +401,12 @@ export default async function handler(req, res) {
   }
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  // ===== DIAGNOSTIC LOGGING: REQUEST METADATA =====
-  console.log('🔍 TIMEZONE DEBUG - Request metadata:');
-  console.log('  Method:', req.method);
-  console.log('  User-Agent:', req.headers['user-agent']);
-  console.log('  Origin:', req.headers['origin']);
-  console.log('  Referer:', req.headers['referer']);
-  console.log('  Request timestamp:', new Date().toISOString());
+  // Capture raw settings outside try block for error-path corpus logging.
+  const rawSettings = req.method === "POST" ? req.body?.settings || {} : req.query;
+  debug('REQUEST:', { method: req.method, origin: req.headers['origin'], ts: new Date().toISOString() });
 
   try {
-    const settings = req.method === "POST" ? req.body?.settings || {} : req.query;
+    const settings = rawSettings;
     const { 
       title, 
       date: dateISO, 
@@ -420,11 +428,6 @@ export default async function handler(req, res) {
     // ===== KIT BOUNDARY SCHEMA MONITOR =====
     // Detects when Kit sends payload keys we've never seen — earliest possible catch point
     // for a "Mode D" scenario where Kit changes their format before downstream logic fails.
-    const KNOWN_SETTINGS_KEYS = [
-      'title', 'date', 'start_time', 'start_ampm', 'end_time', 'end_ampm',
-      'tz', 'location', 'description', 'background_color', 'text_color',
-      'size', 'rounded_corners', 'alignment',
-    ];
     const unknownKeys = Object.keys(settings).filter(k => !KNOWN_SETTINGS_KEYS.includes(k));
     if (unknownKeys.length > 0) {
       console.log(JSON.stringify({
@@ -476,21 +479,9 @@ export default async function handler(req, res) {
       throw new Error(`Invalid end AM/PM: '${end_ampm}'. Expected 'AM' or 'PM'`);
     }
 
-    // ===== DIAGNOSTIC LOGGING: TIMEZONE ISSUE INVESTIGATION =====
-    console.log('🔍 TIMEZONE DEBUG - Input from Kit:');
-    console.log('  dateISO:', dateISO);
-    console.log('  dateISO type:', typeof dateISO);
-    console.log('  dateISO raw value:', JSON.stringify(dateISO));
-    console.log('  start_time:', start_time, start_ampm);
-    console.log('  end_time:', end_time, end_ampm);
-    console.log('  timezone (raw):', tz);
-    console.log('  title:', title);
-    console.log('  alignment:', alignment);
-    console.log('  Full settings object:', JSON.stringify(settings, null, 2));
-
     // Map Kit's timezone format to IANA format that Luxon understands
     const ianaTimezone = mapTimezoneToIANA(tz);
-    console.log('  timezone (mapped to IANA):', ianaTimezone);
+    debug('INPUT:', { dateISO, start_time, start_ampm, end_time, end_ampm, tz, ianaTimezone, alignment });
 
     // Kit's date picker behavior varies:
     //
@@ -522,34 +513,19 @@ export default async function handler(req, res) {
       datePart = utcDate > tzDate ? utcDate : tzDate;
     }
 
-    console.log('🔍 TIMEZONE DEBUG - Date parsing:');
-    console.log('  dateISO raw:', dateISO);
-    console.log('  isDateOnly:', isDateOnly, '| isMidnightUTC:', isMidnightUTC);
-    console.log('  utcMoment:', utcMoment.toString());
-    console.log('  datePart (final):', datePart);
-    console.log('  UTC date:', utcMoment.toISODate(), '| mode:', isDateOnly || isMidnightUTC ? 'direct' : 'tz-convert');
+    debug('DATE PARSE:', { isDateOnly, isMidnightUTC, datePart, utc: utcMoment.toISODate() });
 
     // Construct a parseable 12-hour format string
     const fullStartString = `${datePart} ${start_time} ${start_ampm}`;
     const fullEndString = `${datePart} ${end_time} ${end_ampm}`;
     
-    console.log('🔍 TIMEZONE DEBUG - String construction:');
-    console.log('  fullStartString:', fullStartString);
-    console.log('  fullEndString:', fullEndString);
+    debug('STRINGS:', { fullStartString, fullEndString });
 
     // Parse the strings into Luxon DateTime objects using the specified timezone
     const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
     const endDateTime = DateTime.fromFormat(fullEndString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
     
-    console.log('🔍 TIMEZONE DEBUG - Luxon DateTime objects:');
-    console.log('  startDateTime:', startDateTime.toString());
-    console.log('  startDateTime (ISO):', startDateTime.toISO());
-    console.log('  startDateTime (UTC):', startDateTime.toUTC().toString());
-    console.log('  startDateTime.isValid:', startDateTime.isValid);
-    console.log('  endDateTime:', endDateTime.toString());
-    console.log('  endDateTime (ISO):', endDateTime.toISO());
-    console.log('  endDateTime (UTC):', endDateTime.toUTC().toString());
-    console.log('  endDateTime.isValid:', endDateTime.isValid);
+    debug('DATETIME:', { startISO: startDateTime.toISO(), endISO: endDateTime.toISO(), startValid: startDateTime.isValid, endValid: endDateTime.isValid });
 
     if (!startDateTime.isValid || !endDateTime.isValid) {
       const startReason = startDateTime.invalidReason || 'unknown';
@@ -561,12 +537,8 @@ export default async function handler(req, res) {
     const startDSTCheck = checkDSTEdgeCases(startDateTime, ianaTimezone);
     const endDSTCheck = checkDSTEdgeCases(endDateTime, ianaTimezone);
 
-    if (startDSTCheck.warning) {
-      console.log(`🕐 DST WARNING (start): ${startDSTCheck.message}`);
-    }
-    if (endDSTCheck.warning) {
-      console.log(`🕐 DST WARNING (end): ${endDSTCheck.message}`);
-    }
+    if (startDSTCheck.warning) debug('DST WARNING (start):', startDSTCheck.message);
+    if (endDSTCheck.warning) debug('DST WARNING (end):', endDSTCheck.message);
 
     // Validate end time is after start time
     if (endDateTime <= startDateTime) {
@@ -601,20 +573,12 @@ export default async function handler(req, res) {
     // Outlook requires proper ISO 8601 with separators: 2025-01-28T18:00:00Z
     const formatDateForOutlook = (dt) => dt.toUTC().toISO({ suppressMilliseconds: true });
 
-    console.log('🔍 TIMEZONE DEBUG - URL generation:');
-    console.log('  Google start (UTC):', formatDateForGoogle(startDateTime));
-    console.log('  Google end (UTC):', formatDateForGoogle(endDateTime));
-    console.log('  Outlook start (ISO 8601):', formatDateForOutlook(startDateTime));
-    console.log('  Outlook end (ISO 8601):', formatDateForOutlook(endDateTime));
-    
     const googleUrl = new URL("https://calendar.google.com/calendar/render");
     googleUrl.searchParams.set("action", "TEMPLATE");
     googleUrl.searchParams.set("text", title);
     googleUrl.searchParams.set("details", description);
     googleUrl.searchParams.set("location", location);
     googleUrl.searchParams.set("dates", `${formatDateForGoogle(startDateTime)}/${formatDateForGoogle(endDateTime)}`);
-    
-    console.log('  Google Calendar URL:', googleUrl.toString());
 
     // Modern Outlook URL format (deeplink, not the old /owa/ endpoint)
     // Using proper ISO 8601 format for dates (YYYY-MM-DDTHH:mm:ssZ)
@@ -637,11 +601,7 @@ export default async function handler(req, res) {
     office365Url.searchParams.set("startdt", formatDateForOutlook(startDateTime));
     office365Url.searchParams.set("enddt", formatDateForOutlook(endDateTime));
 
-    console.log('  Outlook URL:', outlookUrl.toString());
-    console.log('  Office 365 URL:', office365Url.toString());
-    console.log('  ICS URL:', icsUrl);
-    console.log('🔍 TIMEZONE DEBUG - End of diagnostic logging');
-    console.log('==========================================');
+    debug('URLS:', { google: googleUrl.toString(), outlook: outlookUrl.toString(), ics: icsUrl });
 
     // --- Button Styling ---
     const sizeMap = {
@@ -666,13 +626,7 @@ export default async function handler(req, res) {
       }
     };
 
-    console.log('🔍 ALIGNMENT DEBUG:');
-    console.log('  alignment value:', alignment);
-    console.log('  alignment type:', typeof alignment);
-    console.log('  alignment is undefined?:', alignment === undefined);
-    console.log('  alignment is empty string?:', alignment === '');
-    console.log('  Raw alignment from settings:', settings.alignment);
-    console.log('  getAlignmentStyles output:', getAlignmentStyles(alignment));
+    debug('ALIGNMENT:', { alignment, output: getAlignmentStyles(alignment) });
 
     const containerStyle = `
       ${getAlignmentStyles(alignment)}
@@ -764,6 +718,17 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error(err);
+    // Error-path corpus log — captures raw inputs even when processing fails.
+    // Without this, failed requests are invisible in the corpus (silent failure blind spot).
+    console.log(JSON.stringify({
+      event: 'calendar_block_error',
+      timestamp: new Date().toISOString(),
+      error: err.message,
+      raw_date_iso: rawSettings.date,
+      timezone_raw: rawSettings.tz,
+      start_time: rawSettings.start_time,
+      start_ampm: rawSettings.start_ampm,
+    }));
     res.setHeader("Content-Type", "application/json");
     // Return a 200 OK status with a JSON body that indicates the error, as per Kit docs.
     return res.status(200).json({ code: 500, errors: [err.message] });

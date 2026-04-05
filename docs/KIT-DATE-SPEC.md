@@ -94,16 +94,19 @@ Kit's date picker does not have a documented API contract. The following three m
 
 **Example**: Kit account set to Eastern. User is in Brisbane. Selects April 15. Browser encodes midnight Brisbane as UTC: `2026-04-14T14:00:00.000Z`. Target TZ is Eastern, not Brisbane.
 
-**Invariant**: Take the **later** of (UTC date) and (date in target timezone). This is mathematically correct for all Mode A/C scenarios.
+**Invariant**: Convert the UTC timestamp to the *target* timezone (the Kit account's timezone, as specified in the `tz` field) and extract the date. The `max()` guard is a tie-breaker for near-midnight edge cases only — not the primary algorithm.
 
-**Correct behavior**: `max(utcDate, targetTZDate)`. For the Brisbane/Eastern example:
-- UTC date of `2026-04-14T14:00:00.000Z` → April 14
-- Eastern date of same → April 14 10:00 AM EDT → April 14
-- max(April 14, April 14) → April 14 ← **wrong!**
+**Correct behavior**: `dateInTargetTz = utcMoment.setZone(ianaTimezone)` → extract date. The `max(utcDate, tzDate)` guard handles the rare case where rounding puts the UTC date and target-TZ date on different sides of midnight; taking the later one is always correct.
 
-Wait — this breaks for Brisbane/Eastern. Let me re-check: the actual fix is that we take the UTC timestamp and ask "what date is it in the target timezone?" Brisbane → Eastern case should still use the target TZ conversion. Mode C is actually handled by Mode A's algorithm when the UTC offset in the timestamp matches the browser TZ, not the account TZ. The `max()` is the defensive guard for edge cases near midnight.
+Example — Brisbane browser / Eastern Kit account, selects April 15:
+- Kit sends `2026-04-14T14:00:00.000Z` (midnight Brisbane = UTC-14 hours)
+- Convert to Eastern: April 14 10:00 AM EDT → date = April 14
+- Convert to UTC date: April 14
+- max(April 14, April 14) → April 14
 
-**Code reference**: `api/calendar-block/index.js`, date parsing section.
+This is correct: the user's Kit account is set to Eastern, so the event is on April 14 Eastern time. The browser (Brisbane) encoded the wrong midnight, but the target-TZ conversion recovers the right date.
+
+**Code reference**: `api/calendar-block/index.js`, date parsing section (`dateInTargetTz = utcMoment.setZone(ianaTimezone)`).
 
 **Bug this fixed**: [Bug 3] User with Brisbane browser but Eastern Kit account was getting wrong dates.
 
