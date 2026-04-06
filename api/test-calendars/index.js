@@ -673,7 +673,10 @@ async function sendFailureAlert(results) {
       },
       {
         type: "context",
-        elements: [{ type: "mrkdwn", text: `Env: ${results.environment} · ${results.timestamp}` }],
+        elements: [
+          { type: "mrkdwn", text: `Env: ${results.environment} · ${results.timestamp}` },
+          { type: "mrkdwn", text: `<https://kit-app-build.vercel.app/api/dashboard?secret=${encodeURIComponent(process.env.WEEKLY_REPORT_SECRET)}|View Dashboard>` },
+        ],
       },
     ],
   };

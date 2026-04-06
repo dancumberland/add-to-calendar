@@ -183,6 +183,15 @@ async function sendSlackReport(report) {
           text: `*8-Week Trend*\n${chartRows}`,
         },
       },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: `<https://kit-app-build.vercel.app/api/dashboard?secret=${encodeURIComponent(process.env.WEEKLY_REPORT_SECRET)}|View Dashboard>`,
+          },
+        ],
+      },
     ],
   };
 
