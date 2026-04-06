@@ -7,58 +7,7 @@
 
 ## NEXT (This or Next Session)
 
-### Add Cron Failure Alerts to Test Endpoint
-**Priority**: HIGH
-**Estimated Effort**: 1-2 hours
-**Status**: Ready
-
-The cron-triggered test endpoint (`/api/test-calendars`) runs silently — it returns JSON results but doesn't send failure alerts. The alert/email logic lives only in the CLI script (`scripts/test-calendar-integrations.js`). Add failure alerting directly to the API endpoint so the Monday cron actually notifies on test failures.
-
-**Deliverables**:
-- Add email/webhook alert to `/api/test-calendars` when any test fails
-- Use existing MAKE_WEBHOOK_URL or REPORT_EMAIL env vars
-- Keep the endpoint working as-is for manual GET requests
-
-**Dependencies**:
-- ✅ Test endpoint working (12/12 pass)
-- ✅ Alert env vars configured (MAKE_WEBHOOK_URL, REPORT_EMAIL)
-
----
-
-### Fix Weekend Data Gap in Weekly Aggregation
-**Priority**: MEDIUM
-**Estimated Effort**: 1 hour
-**Status**: Ready
-
-The Friday cron creates weekly aggregates for the current ISO week (Mon-Sun), but runs on Friday — so Saturday and Sunday data is never included. Options: run aggregation on Monday for the prior week, or re-aggregate the prior week on each run.
-
-**Deliverables**:
-- Weekly aggregates include full Mon-Sun data
-- WoW comparisons remain accurate
-- Backfill current aggregates if approach changes
-
-**Dependencies**:
-- ✅ Weekly aggregation working
-- ✅ Data verified via KV inspection
-
----
-
-### Add Metrics Dashboard
-**Priority**: HIGH
-**Estimated Effort**: 4-6 hours
-**Status**: Design phase
-
-Create a simple admin dashboard to view real-time metrics and historical trends.
-
-**Deliverables**:
-- `/api/dashboard` endpoint returning analytics data
-- Simple HTML page showing weekly trends and all-time stats
-- Quick link to last 4 weeks of data
-
-**Dependencies**:
-- ✅ Analytics module complete
-- ✅ Data being tracked consistently
-- ❌ Need authentication/security for admin access
+_Backlog is clear. All items completed. Only blocked item remains (Brisbane — waiting on Kit)._
 
 ---
 
@@ -121,7 +70,14 @@ Brisbane/Queensland isn't in Kit's timezone dropdown. Drafted feature request to
 
 ---
 
-## Completed (Apr 5, 2026)
+## Completed (Apr 5, 2026) — Session 2
+
+✅ Cron failure alerts — Slack alert on any Monday test failure (lists tests + errors + dashboard link)
+✅ Fixed weekend data gap — `aggregateWeeklyData()` now targets previous completed week (was missing Sat/Sun)
+✅ Metrics dashboard — `/api/dashboard` with 12-week Chart.js bar chart and stat cards
+✅ Dashboard link in all Slack messages (weekly report + failure alerts)
+
+## Completed (Apr 5, 2026) — Session 1
 
 ✅ Fixed Apple Calendar 500 error — removed double decodeURIComponent in ICS endpoint (bug #4)
 ✅ Built corpus logging system — every Kit request logged to VPS (unlimited retention, JSONL)
