@@ -4,13 +4,34 @@ import { getTwelveWeekTrend, getAllTimeStats, aggregateWeeklyData } from "../../
 export default async function handler(req, res) {
   // Handle both POST requests (manual) and GET requests (cron)
   if (req.method === 'GET') {
-    // Cron job triggered - use environment variables
     const secret = process.env.WEEKLY_REPORT_SECRET;
 
     if (!secret) {
       return res.status(500).json({ error: 'WEEKLY_REPORT_SECRET environment variable not set' });
     }
 
+    // Backfill mode: re-aggregate recent weeks from daily data (requires auth)
+    if (req.query.backfill === 'true') {
+      if (req.query.secret !== secret) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      try {
+        const weeksBack = Math.min(parseInt(req.query.weeks) || 4, 8);
+        const results = [];
+        for (let i = 1; i <= weeksBack; i++) {
+          const targetDate = DateTime.utc().minus({ weeks: i }).toISODate();
+          const result = await aggregateWeeklyData(targetDate, { force: true });
+          results.push(result);
+        }
+        return res.status(200).json({ success: true, backfill: results });
+      } catch (error) {
+        console.error('Backfill error:', error);
+        return res.status(500).json({ error: 'Backfill failed', details: error.message });
+      }
+    }
+
+    // Normal cron-triggered report
     try {
       // Aggregate last week's data before generating report
       const aggregateResult = await aggregateWeeklyData();
@@ -62,13 +83,19 @@ export default async function handler(req, res) {
 }
 
 async function generateWeeklyReport() {
-  const now = DateTime.now();
   const trendData = await getTwelveWeekTrend();
   const allTimeData = await getAllTimeStats();
 
-  // Calculate WoW trend for total events
-  const lastWeekTotal = trendData.lastWeekTotal;
-  const thisWeekTotal = trendData.thisWeekTotal;
+  // Use only COMPLETED weeks for comparison — the current partial week
+  // (weekOffset 0 in getTwelveWeekTrend) is always incomplete and makes
+  // WoW comparisons meaningless (e.g. 2 days vs 7 days = -67%).
+  const completedWeeks = trendData.weeklyTotals.slice(0, -1);
+  const thisWeek = completedWeeks[completedWeeks.length - 1];
+  const lastWeek = completedWeeks[completedWeeks.length - 2];
+
+  const thisWeekTotal = thisWeek ? thisWeek.total : 0;
+  const lastWeekTotal = lastWeek ? lastWeek.total : 0;
+
   const totalEventsTrend = lastWeekTotal > 0
     ? Math.round(((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100)
     : (thisWeekTotal > 0 ? 100 : 0);
@@ -81,8 +108,8 @@ async function generateWeeklyReport() {
 
   return {
     period: {
-      start: now.minus({ days: 7 }).toISODate(),
-      end: now.minus({ days: 1 }).toISODate(),
+      start: thisWeek ? thisWeek.weekStart : '',
+      end: thisWeek ? thisWeek.weekEnd : '',
     },
     summary: {
       thisWeekTotal,
@@ -93,7 +120,7 @@ async function generateWeeklyReport() {
     allTime: {
       totalEvents: allTimeData.totalEvents,
     },
-    weeklyTotals: trendData.weeklyTotals,
+    weeklyTotals: completedWeeks, // only completed weeks
   };
 }
 

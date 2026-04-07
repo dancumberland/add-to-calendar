@@ -65,7 +65,7 @@ export async function trackDailyUsage(data) {
 // Aggregate daily data into weekly totals
 // Call this at end of week to lock in historical data
 // Note: Uses UTC for week boundaries (see design decision at top of file)
-export async function aggregateWeeklyData(targetDate = null) {
+export async function aggregateWeeklyData(targetDate = null, { force = false } = {}) {
   try {
     // Use provided date or default to the last fully completed week.
     // Without a targetDate, always aggregate the previous week (ending last Sunday)
@@ -81,10 +81,12 @@ export async function aggregateWeeklyData(targetDate = null) {
 
     const weekKey = `usage:weekly:${weekEnd.toISODate()}`;
 
-    // Check if week already aggregated
-    const existing = await kv.get(weekKey);
-    if (existing) {
-      return { status: 'already_aggregated', week: weekEnd.toISODate() };
+    // Check if week already aggregated (skip check if force=true for backfill)
+    if (!force) {
+      const existing = await kv.get(weekKey);
+      if (existing) {
+        return { status: 'already_aggregated', week: weekEnd.toISODate() };
+      }
     }
 
     // Sum up all daily data for this week
