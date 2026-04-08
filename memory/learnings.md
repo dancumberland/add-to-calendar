@@ -27,6 +27,21 @@ See `docs/KIT-DATE-SPEC.md` for the authoritative specification. Summary:
 
 **The `max()` is a tie-breaker, not the primary algorithm.** Primary: convert UTC timestamp to target TZ, extract date.
 
+### V2 Format (detected 2026-04-08)
+
+Kit began sending a completely new payload format:
+- `start`: ISO local datetime `"2026-04-10T10:00:00"` (no Z, no UTC encoding)
+- `duration`: minutes as string `"60"` (replaces `end_time`/`end_ampm`)
+- `timezone`: IANA name `"America/Chicago"` (replaces Rails ActiveSupport `tz`)
+
+**Key wins**: No more Mode A/B/C ambiguity. `start` is an unambiguous local datetime. No timezone mapping needed.
+
+**Detection**: `start && duration && timezone` → v2. Otherwise → v1 (legacy).
+
+**What to watch**: V2 payloads may omit `location`/`description` when empty (v1 always included them). The styling fields (`background_color`, `text_color`, `size`, `rounded_corners`, `alignment`) have not been seen in v2 yet — may be sent when users customize styling, or may be gone entirely.
+
+**Schema monitor fired the alert.** First v2 payload hit at 2026-04-08T14:44:17Z. Two alerts (5 seconds apart) — likely Kit's preview rendering hitting the endpoint twice.
+
 ### Mode B Boundary Tolerance (investigated 2026-04-05)
 
 The midnight-UTC check is `hour === 0 && minute === 0 && second === 0`.
@@ -92,6 +107,13 @@ Triage order:
 2. If it's an HTTP test (not a unit test), check if Vercel deployed successfully
 3. If `VERCEL_TOKEN` is set, the deployment URL is SHA-bound — check that the right deployment was tested
 4. Run the test endpoint manually: `curl -H "x-test-secret: [secret]" https://kit-app-build.vercel.app/api/test-calendars`
+
+### Vercel env var whitespace breaks deploys (2026-04-08)
+- **Symptom**: CI fails at "Wait for Vercel deployment" step with "Vercel deployment failed." Deployment state is ERROR with 0ms build time — never even starts building.
+- **Root cause**: `CRON_SECRET` env var had a trailing `\n` (newline). Vercel validates that cron secrets are valid HTTP header values; whitespace is rejected. Error code: `INVALID_CRON_SECRET`.
+- **Diagnosis**: `npx vercel ls` showed ERROR state → Vercel API (`/v13/deployments/<id>`) returned `errorCode: INVALID_CRON_SECRET` with a clear message about whitespace.
+- **Fix**: `vercel env rm CRON_SECRET production` → `printf 'value' | vercel env add CRON_SECRET production` (printf avoids trailing newline).
+- **Rule**: When adding Vercel env vars, use `printf` not `echo` to avoid trailing newlines. Always check `vercel env pull` output with `cat -v` or `od -c` if deploys fail with no build logs.
 
 ---
 

@@ -412,6 +412,8 @@ const KNOWN_SETTINGS_KEYS = [
   'title', 'date', 'start_time', 'start_ampm', 'end_time', 'end_ampm',
   'tz', 'location', 'description', 'background_color', 'text_color',
   'size', 'rounded_corners', 'alignment',
+  // New format (Kit v2, detected April 2026)
+  'start', 'duration', 'timezone',
 ];
 
 // Debug logging — only emits when DEBUG=true in environment.
@@ -434,15 +436,21 @@ export default async function handler(req, res) {
 
   try {
     const settings = rawSettings;
-    const { 
-      title, 
-      date: dateISO, 
-      start_time, 
-      start_ampm, 
-      end_time, 
-      end_ampm, 
-      tz, 
-      location, 
+    const {
+      title,
+      // Legacy format (Kit v1)
+      date: dateISO,
+      start_time,
+      start_ampm,
+      end_time,
+      end_ampm,
+      tz,
+      // New format (Kit v2, April 2026) — clean ISO start, duration in minutes, IANA timezone
+      start: startISO,
+      duration: durationMinutes,
+      timezone: timezoneIANA,
+      // Common fields
+      location,
       description = "See you there!",
       // Styling settings with defaults
       background_color = "#4285F4",
@@ -481,8 +489,12 @@ export default async function handler(req, res) {
       }
     }
 
-    // If settings are incomplete, return the placeholder HTML block
-    if (!title || !dateISO || !start_time || !start_ampm || !end_time || !end_ampm || !tz) {
+    // Detect which format Kit sent — v2 (start/duration/timezone) vs v1 (date/start_time/etc.)
+    const isV2Format = !!(startISO && durationMinutes && timezoneIANA);
+    const isV1Format = !!(dateISO && start_time && start_ampm && end_time && end_ampm && tz);
+
+    // If settings are incomplete for BOTH formats, return the placeholder
+    if (!title || (!isV2Format && !isV1Format)) {
       const placeholderHtml = `
         <div style="border: 1px dashed #ccc; padding: 40px; text-align: center; font-family: Helvetica, Arial, sans-serif; color: #555;">
           Add your event details in the sidebar -->
@@ -491,78 +503,102 @@ export default async function handler(req, res) {
       return res.status(200).json({ code: 200, html: placeholderHtml });
     }
 
-    // ===== INPUT VALIDATION =====
-    // Validate time formats early to catch bad data
-    if (!validateTimeFormat(start_time)) {
-      throw new Error(`Invalid start time format: '${start_time}'. Expected HH:MM (e.g., '09:30' or '2:00')`);
-    }
-    if (!validateTimeFormat(end_time)) {
-      throw new Error(`Invalid end time format: '${end_time}'. Expected HH:MM (e.g., '09:30' or '2:00')`);
-    }
-    if (!validateAmPm(start_ampm)) {
-      throw new Error(`Invalid start AM/PM: '${start_ampm}'. Expected 'AM' or 'PM'`);
-    }
-    if (!validateAmPm(end_ampm)) {
-      throw new Error(`Invalid end AM/PM: '${end_ampm}'. Expected 'AM' or 'PM'`);
-    }
+    let startDateTime, endDateTime, ianaTimezone, isDateOnly, isMidnightUTC;
 
-    // Map Kit's timezone format to IANA format that Luxon understands
-    const ianaTimezone = mapTimezoneToIANA(tz);
-    debug('INPUT:', { dateISO, start_time, start_ampm, end_time, end_ampm, tz, ianaTimezone, alignment });
+    if (isV2Format) {
+      // ===== V2 FORMAT (Kit April 2026+) =====
+      // start: ISO local datetime "2026-04-10T10:00:00"
+      // duration: minutes as string "60"
+      // timezone: IANA name "America/Chicago"
+      ianaTimezone = timezoneIANA;
+      debug('V2 INPUT:', { startISO, durationMinutes, timezoneIANA });
 
-    // Kit's date picker behavior varies:
-    //
-    // Mode A — "Midnight-local-as-UTC": The picker sends midnight in the user's BROWSER
-    //   timezone encoded as UTC. A Brisbane (UTC+10) user selecting Feb 5 sends
-    //   "2026-02-04T14:00:00.000Z" (Feb 5 00:00 AEST = Feb 4 14:00 UTC).
-    //   → Non-midnight UTC time → convert UTC→target TZ to recover the intended date.
-    //
-    // Mode B — "Date-only or midnight-UTC": The picker sends a plain date ("2026-03-18")
-    //   or midnight UTC ("2026-03-18T00:00:00.000Z"). The UTC date IS the intended date.
-    //   → Midnight UTC or no time component → use the UTC date directly.
-    //
-    // Without Mode B handling, US/western users get dates shifted back one day:
-    //   "2026-03-18T00:00:00Z" → Eastern (UTC-4) → March 17 20:00 → wrong date.
-    const utcMoment = DateTime.fromISO(dateISO, { zone: 'utc' });
-    const isDateOnly = !dateISO.includes('T');
-    // Mode B detection: UTC time is exactly midnight (00:00:00.000).
-    // Tolerance: sub-second jitter is safe (second === 0 passes even with ms offset).
-    // Not safe: if Kit ever sends 00:00:01Z or later, this routes to Mode A (date-off-by-one
-    // for UTC+ users). In practice Kit constructs dates from date values, not timestamps,
-    // so non-zero seconds are not expected. Validated: Kit sends .000Z exactly.
-    const isMidnightUTC = utcMoment.hour === 0 && utcMoment.minute === 0 && utcMoment.second === 0;
+      startDateTime = DateTime.fromISO(startISO, { zone: ianaTimezone });
+      if (!startDateTime.isValid) {
+        throw new Error(`Invalid v2 start datetime: '${startISO}'. Reason: ${startDateTime.invalidReason}`);
+      }
 
-    let datePart;
-    if (isDateOnly || isMidnightUTC) {
-      // Plain date or midnight UTC — the UTC date IS the intended date
-      datePart = utcMoment.toISODate();
+      const duration = parseInt(durationMinutes, 10);
+      if (isNaN(duration) || duration <= 0) {
+        throw new Error(`Invalid v2 duration: '${durationMinutes}'. Expected positive integer (minutes).`);
+      }
+      endDateTime = startDateTime.plus({ minutes: duration });
+
+      debug('V2 PARSED:', { startISO: startDateTime.toISO(), endISO: endDateTime.toISO() });
     } else {
-      // Non-midnight UTC — date picker sent midnight-in-local-time as UTC
-      // Take the later of UTC date and target-TZ date to handle browser TZ ≠ account TZ
-      const dateInTargetTz = utcMoment.setZone(ianaTimezone);
-      const utcDate = utcMoment.toISODate();
-      const tzDate = dateInTargetTz.toISODate();
-      datePart = utcDate > tzDate ? utcDate : tzDate;
-    }
+      // ===== V1 FORMAT (Legacy) =====
+      // Validate time formats early to catch bad data
+      if (!validateTimeFormat(start_time)) {
+        throw new Error(`Invalid start time format: '${start_time}'. Expected HH:MM (e.g., '09:30' or '2:00')`);
+      }
+      if (!validateTimeFormat(end_time)) {
+        throw new Error(`Invalid end time format: '${end_time}'. Expected HH:MM (e.g., '09:30' or '2:00')`);
+      }
+      if (!validateAmPm(start_ampm)) {
+        throw new Error(`Invalid start AM/PM: '${start_ampm}'. Expected 'AM' or 'PM'`);
+      }
+      if (!validateAmPm(end_ampm)) {
+        throw new Error(`Invalid end AM/PM: '${end_ampm}'. Expected 'AM' or 'PM'`);
+      }
 
-    debug('DATE PARSE:', { isDateOnly, isMidnightUTC, datePart, utc: utcMoment.toISODate() });
+      // Map Kit's timezone format to IANA format that Luxon understands
+      ianaTimezone = mapTimezoneToIANA(tz);
+      debug('V1 INPUT:', { dateISO, start_time, start_ampm, end_time, end_ampm, tz, ianaTimezone, alignment });
 
-    // Construct a parseable 12-hour format string
-    const fullStartString = `${datePart} ${start_time} ${start_ampm}`;
-    const fullEndString = `${datePart} ${end_time} ${end_ampm}`;
-    
-    debug('STRINGS:', { fullStartString, fullEndString });
+      // Kit's date picker behavior varies:
+      //
+      // Mode A — "Midnight-local-as-UTC": The picker sends midnight in the user's BROWSER
+      //   timezone encoded as UTC. A Brisbane (UTC+10) user selecting Feb 5 sends
+      //   "2026-02-04T14:00:00.000Z" (Feb 5 00:00 AEST = Feb 4 14:00 UTC).
+      //   → Non-midnight UTC time → convert UTC→target TZ to recover the intended date.
+      //
+      // Mode B — "Date-only or midnight-UTC": The picker sends a plain date ("2026-03-18")
+      //   or midnight UTC ("2026-03-18T00:00:00.000Z"). The UTC date IS the intended date.
+      //   → Midnight UTC or no time component → use the UTC date directly.
+      //
+      // Without Mode B handling, US/western users get dates shifted back one day:
+      //   "2026-03-18T00:00:00Z" → Eastern (UTC-4) → March 17 20:00 → wrong date.
+      const utcMoment = DateTime.fromISO(dateISO, { zone: 'utc' });
+      isDateOnly = !dateISO.includes('T');
+      // Mode B detection: UTC time is exactly midnight (00:00:00.000).
+      // Tolerance: sub-second jitter is safe (second === 0 passes even with ms offset).
+      // Not safe: if Kit ever sends 00:00:01Z or later, this routes to Mode A (date-off-by-one
+      // for UTC+ users). In practice Kit constructs dates from date values, not timestamps,
+      // so non-zero seconds are not expected. Validated: Kit sends .000Z exactly.
+      isMidnightUTC = utcMoment.hour === 0 && utcMoment.minute === 0 && utcMoment.second === 0;
 
-    // Parse the strings into Luxon DateTime objects using the specified timezone
-    const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
-    const endDateTime = DateTime.fromFormat(fullEndString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
-    
-    debug('DATETIME:', { startISO: startDateTime.toISO(), endISO: endDateTime.toISO(), startValid: startDateTime.isValid, endValid: endDateTime.isValid });
+      let datePart;
+      if (isDateOnly || isMidnightUTC) {
+        // Plain date or midnight UTC — the UTC date IS the intended date
+        datePart = utcMoment.toISODate();
+      } else {
+        // Non-midnight UTC — date picker sent midnight-in-local-time as UTC
+        // Take the later of UTC date and target-TZ date to handle browser TZ ≠ account TZ
+        const dateInTargetTz = utcMoment.setZone(ianaTimezone);
+        const utcDate = utcMoment.toISODate();
+        const tzDate = dateInTargetTz.toISODate();
+        datePart = utcDate > tzDate ? utcDate : tzDate;
+      }
 
-    if (!startDateTime.isValid || !endDateTime.isValid) {
-      const startReason = startDateTime.invalidReason || 'unknown';
-      const endReason = endDateTime.invalidReason || 'unknown';
-      throw new Error(`Invalid date/time. Start: ${startReason}, End: ${endReason}. Received: date='${dateISO}', start='${start_time} ${start_ampm}', end='${end_time} ${end_ampm}', tz='${tz}' (mapped to '${ianaTimezone}')`);
+      debug('V1 DATE PARSE:', { isDateOnly, isMidnightUTC, datePart, utc: utcMoment.toISODate() });
+
+      // Construct a parseable 12-hour format string
+      const fullStartString = `${datePart} ${start_time} ${start_ampm}`;
+      const fullEndString = `${datePart} ${end_time} ${end_ampm}`;
+
+      debug('V1 STRINGS:', { fullStartString, fullEndString });
+
+      // Parse the strings into Luxon DateTime objects using the specified timezone
+      startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
+      endDateTime = DateTime.fromFormat(fullEndString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
+
+      debug('V1 DATETIME:', { startISO: startDateTime.toISO(), endISO: endDateTime.toISO(), startValid: startDateTime.isValid, endValid: endDateTime.isValid });
+
+      if (!startDateTime.isValid || !endDateTime.isValid) {
+        const startReason = startDateTime.invalidReason || 'unknown';
+        const endReason = endDateTime.invalidReason || 'unknown';
+        throw new Error(`Invalid date/time. Start: ${startReason}, End: ${endReason}. Received: date='${dateISO}', start='${start_time} ${start_ampm}', end='${end_time} ${end_ampm}', tz='${tz}' (mapped to '${ianaTimezone}')`);
+      }
     }
 
     // Check for DST edge cases
@@ -593,7 +629,7 @@ export default async function handler(req, res) {
     try {
       await trackDailyUsage({
         timestamp: new Date().toISOString(),
-        timezone: tz,
+        timezone: ianaTimezone,
         hasLocation: !!location,
         eventType: inferEventType(title, description)
       });
@@ -609,7 +645,7 @@ export default async function handler(req, res) {
     googleUrl.searchParams.set("action", "TEMPLATE");
     googleUrl.searchParams.set("text", title);
     googleUrl.searchParams.set("details", description);
-    googleUrl.searchParams.set("location", location);
+    googleUrl.searchParams.set("location", location || "");
     googleUrl.searchParams.set("dates", `${formatDateForGoogle(startDateTime)}/${formatDateForGoogle(endDateTime)}`);
 
     // Modern Outlook URL format (deeplink, not the old /owa/ endpoint)
@@ -730,20 +766,25 @@ export default async function handler(req, res) {
     // for Kit's undocumented input space. 30-day retention via Vercel log drain.
     // Use this to audit for silent failures: periodically check that resolved dates
     // look sane relative to the raw input.
-    const detectedMode = isDateOnly ? 'date-only' : isMidnightUTC ? 'midnight-utc' : 'midnight-local-as-utc';
-    corpusLog({
+    const corpusEntry = {
       event: 'calendar_block_request',
       timestamp: new Date().toISOString(),
-      raw_date_iso: dateISO,
-      detected_mode: detectedMode,
-      timezone_raw: tz,
+      format: isV2Format ? 'v2' : 'v1',
       timezone_iana: ianaTimezone,
-      resolved_date: datePart,
-      start_time: `${start_time} ${start_ampm}`,
-      end_time: `${end_time} ${end_ampm}`,
       start_utc: startDateTime.toUTC().toISO(),
       end_utc: endDateTime.toUTC().toISO(),
-    });
+    };
+    if (isV2Format) {
+      corpusEntry.raw_start = startISO;
+      corpusEntry.duration_minutes = durationMinutes;
+    } else {
+      corpusEntry.raw_date_iso = dateISO;
+      corpusEntry.detected_mode = isDateOnly ? 'date-only' : isMidnightUTC ? 'midnight-utc' : 'midnight-local-as-utc';
+      corpusEntry.timezone_raw = tz;
+      corpusEntry.start_time = `${start_time} ${start_ampm}`;
+      corpusEntry.end_time = `${end_time} ${end_ampm}`;
+    }
+    corpusLog(corpusEntry);
 
     res.setHeader("Content-Type", "application/json");
     return res.status(200).json({ code: 200, html: html });
@@ -756,6 +797,12 @@ export default async function handler(req, res) {
       event: 'calendar_block_error',
       timestamp: new Date().toISOString(),
       error: err.message,
+      format: rawSettings.start ? 'v2' : 'v1',
+      // V2 fields
+      raw_start: rawSettings.start,
+      duration: rawSettings.duration,
+      timezone: rawSettings.timezone,
+      // V1 fields
       raw_date_iso: rawSettings.date,
       timezone_raw: rawSettings.tz,
       start_time: rawSettings.start_time,

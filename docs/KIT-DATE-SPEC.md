@@ -1,7 +1,7 @@
 # Kit Calendar — Input/Output Specification
 
-**Version**: 1.0  
-**Date**: 2026-04-04  
+**Version**: 2.0  
+**Date**: 2026-04-08  
 **Source of truth**: This document. Tests in `api/test-calendars/index.js` derive from it.
 
 ---
@@ -20,7 +20,24 @@ Kit's calendar block API is undocumented and unstable. This spec captures everyt
 
 Body: `{ "settings": { ... } }`
 
-### Known Fields
+### V2 Format (April 2026+)
+
+Kit began sending a new format in April 2026. Both v1 and v2 are supported.
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `title` | string | Yes | Event title |
+| `start` | string | Yes | ISO 8601 local datetime, e.g. `"2026-04-10T10:00:00"` (no Z suffix) |
+| `duration` | string | Yes | Duration in minutes, e.g. `"60"` |
+| `timezone` | string | Yes | IANA timezone name, e.g. `"America/Chicago"` |
+| `location` | string | No | Event location (omitted when empty, unlike v1) |
+| `description` | string | No | Event description |
+
+**Key differences from v1**: No Mode A/B/C ambiguity. `start` is an unambiguous local datetime. `timezone` is IANA (no Rails mapping needed). End time is computed from `duration` instead of separate fields.
+
+**Detection**: Request has `start` AND `duration` AND `timezone` fields → v2. Otherwise → v1.
+
+### V1 Format (Legacy)
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
@@ -190,7 +207,7 @@ All four were reported by users before any internal detection.
 
 ## What Could Still Break
 
-1. **Mode D**: Kit changes date encoding format in a way not covered by Modes A-C. Detection: schema monitor will fire if payload keys change; corpus logs will show unusual `detected_mode` patterns.
+1. **Mode D**: Kit changes date encoding format in a way not covered by Modes A-C or V2. Detection: schema monitor will fire if payload keys change; corpus logs will show unusual `detected_mode` patterns. **Note**: V2 format (April 2026) was detected this way — the schema monitor fired on new `start`, `duration`, `timezone` fields.
 
 2. **ICS encoding edge cases**: Unicode, ampersands, special characters in event title/description. Class-adjacent to Bug 4. Partially covered by HTTP test case "special chars in title".
 
@@ -202,8 +219,8 @@ All four were reported by users before any internal detection.
 
 ## Testing This Spec
 
-- **Unit tests**: `api/test-calendars/index.js` — 16 cases covering all three modes
-- **HTTP integration tests**: Same file — 5 HTTP-level cases including full pipeline and double-decode regression
+- **Unit tests**: `api/test-calendars/index.js` — 21 cases covering v1 (three modes) and v2 format
+- **HTTP integration tests**: Same file — 6 HTTP-level cases including full pipeline for both v1 and v2, and double-decode regression
 - **VPS health check**: `scripts/vps-health-check.py` — weekly, 4 timezone scenarios, actually fetches ICS
 - **Canary (date-accuracy)**: `scripts/canary-test.js` — validates DTSTART date in ICS, not just structure
 - **CI gate**: `.github/workflows/integration-tests.yml` — runs HTTP tests on every deploy

@@ -333,7 +333,79 @@ const TEST_CASES = [
       googleDateStart: "20260318T170000Z",
       outlookDateStart: "2026-03-18T17:00:00Z"
     }
-  }
+  },
+  // ===== V2 FORMAT TESTS (Kit April 2026+) =====
+  // New format: start (ISO local datetime), duration (minutes), timezone (IANA)
+  {
+    name: "V2: Basic event — Central timezone, 60-minute duration",
+    settings: {
+      title: "V2 Test Event",
+      start: "2026-04-10T10:00:00",
+      duration: "60",
+      timezone: "America/Chicago",
+    },
+    expected: {
+      // Apr 10 10:00 AM Central (CDT, UTC-5) = Apr 10 15:00 UTC
+      googleDateStart: "20260410T150000Z",
+      outlookDateStart: "2026-04-10T15:00:00Z"
+    }
+  },
+  {
+    name: "V2: PM event — Eastern timezone, 90-minute duration",
+    settings: {
+      title: "V2 PM Event",
+      start: "2026-04-10T14:30:00",
+      duration: "90",
+      timezone: "America/New_York",
+    },
+    expected: {
+      // Apr 10 2:30 PM Eastern (EDT, UTC-4) = Apr 10 18:30 UTC
+      googleDateStart: "20260410T183000Z",
+      outlookDateStart: "2026-04-10T18:30:00Z"
+    }
+  },
+  {
+    name: "V2: UTC+ timezone — Sydney",
+    settings: {
+      title: "V2 Sydney Event",
+      start: "2026-04-10T09:00:00",
+      duration: "60",
+      timezone: "Australia/Sydney",
+    },
+    expected: {
+      // Apr 10 is in AEST (UTC+10, no DST in April). 09:00 AEST = Apr 9 23:00 UTC
+      googleDateStart: "20260409T230000Z",
+      outlookDateStart: "2026-04-09T23:00:00Z"
+    }
+  },
+  {
+    name: "V2: Half-hour offset — India",
+    settings: {
+      title: "V2 India Event",
+      start: "2026-04-10T15:00:00",
+      duration: "45",
+      timezone: "Asia/Kolkata",
+    },
+    expected: {
+      // Apr 10 3:00 PM IST (UTC+5:30) = Apr 10 09:30 UTC
+      googleDateStart: "20260410T093000Z",
+      outlookDateStart: "2026-04-10T09:30:00Z"
+    }
+  },
+  {
+    name: "V2: Arizona (no DST) in summer",
+    settings: {
+      title: "V2 Phoenix Event",
+      start: "2026-07-15T09:00:00",
+      duration: "60",
+      timezone: "America/Phoenix",
+    },
+    expected: {
+      // Jul 15 09:00 Phoenix (GMT-7, no DST) = Jul 15 16:00 UTC
+      googleDateStart: "20260715T160000Z",
+      outlookDateStart: "2026-07-15T16:00:00Z"
+    }
+  },
 ];
 
 function mapTimezoneToIANA(kitTimezone) {
@@ -460,6 +532,19 @@ const HTTP_TEST_CASES = [
     },
     expect: { icsStatus: 200, hasVcalendar: true },
   },
+  {
+    name: "Full pipeline V2: calendar-block POST (v2 format) → parse HTML → fetch ICS URL",
+    fullPipeline: true,
+    settings: {
+      title: "V2 Pipeline Test",
+      start: "2026-04-15T10:00:00",
+      duration: "60",
+      timezone: "America/New_York",
+      location: "Online",
+      description: "Testing v2 format pipeline",
+    },
+    expect: { icsStatus: 200, hasVcalendar: true },
+  },
 ];
 
 async function runHttpTest(test, baseUrl) {
@@ -548,26 +633,35 @@ function runTest(testCase) {
   const results = { name, passed: true, errors: [], details: {} };
 
   try {
-    const ianaTimezone = mapTimezoneToIANA(settings.tz);
-    // Date parsing: detect midnight-UTC vs real timezone-shifted timestamps
-    // (matches the fix in calendar-block/index.js)
-    const utcMoment = DateTime.fromISO(settings.date, { zone: 'utc' });
-    const isDateOnly = !settings.date.includes('T');
-    const isMidnightUTC = utcMoment.hour === 0 && utcMoment.minute === 0 && utcMoment.second === 0;
+    // Detect v2 format (start/duration/timezone) vs v1 (date/start_time/etc.)
+    const isV2 = !!(settings.start && settings.duration && settings.timezone);
 
-    let datePart;
-    if (isDateOnly || isMidnightUTC) {
-      datePart = utcMoment.toISODate();
+    let startDateTime, ianaTimezone;
+
+    if (isV2) {
+      // V2: clean ISO local datetime + IANA timezone
+      ianaTimezone = settings.timezone;
+      startDateTime = DateTime.fromISO(settings.start, { zone: ianaTimezone });
     } else {
-      // Take the later of UTC date and target-TZ date to handle browser TZ ≠ account TZ
-      const dateInTargetTz = utcMoment.setZone(ianaTimezone);
-      const utcDate = utcMoment.toISODate();
-      const tzDate = dateInTargetTz.toISODate();
-      datePart = utcDate > tzDate ? utcDate : tzDate;
-    }
+      // V1: legacy date parsing with Mode A/B/C detection
+      ianaTimezone = mapTimezoneToIANA(settings.tz);
+      const utcMoment = DateTime.fromISO(settings.date, { zone: 'utc' });
+      const isDateOnly = !settings.date.includes('T');
+      const isMidnightUTC = utcMoment.hour === 0 && utcMoment.minute === 0 && utcMoment.second === 0;
 
-    const fullStartString = `${datePart} ${settings.start_time} ${settings.start_ampm}`;
-    const startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
+      let datePart;
+      if (isDateOnly || isMidnightUTC) {
+        datePart = utcMoment.toISODate();
+      } else {
+        const dateInTargetTz = utcMoment.setZone(ianaTimezone);
+        const utcDate = utcMoment.toISODate();
+        const tzDate = dateInTargetTz.toISODate();
+        datePart = utcDate > tzDate ? utcDate : tzDate;
+      }
+
+      const fullStartString = `${datePart} ${settings.start_time} ${settings.start_ampm}`;
+      startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
+    }
 
     if (!startDateTime.isValid) {
       results.passed = false;
