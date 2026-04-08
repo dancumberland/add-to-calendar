@@ -5,17 +5,24 @@ export default async function handler(req, res) {
   // Handle both POST requests (manual) and GET requests (cron)
   if (req.method === 'GET') {
     const secret = process.env.WEEKLY_REPORT_SECRET;
+    const cronSecret = process.env.CRON_SECRET;
 
     if (!secret) {
       return res.status(500).json({ error: 'WEEKLY_REPORT_SECRET environment variable not set' });
     }
 
-    // Backfill mode: re-aggregate recent weeks from daily data (requires auth)
-    if (req.query.backfill === 'true') {
-      if (req.query.secret !== secret) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+    // Auth: require either Vercel cron header OR query param secret.
+    // Without this, any GET request (crawlers, bots) triggers a Slack report.
+    const authHeader = req.headers.authorization;
+    const isCronAuth = cronSecret && authHeader === `Bearer ${cronSecret}`;
+    const isSecretAuth = req.query.secret === secret;
 
+    if (!isCronAuth && !isSecretAuth) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Backfill mode: re-aggregate recent weeks from daily data
+    if (req.query.backfill === 'true') {
       try {
         const weeksBack = Math.min(parseInt(req.query.weeks) || 4, 8);
         const results = [];
