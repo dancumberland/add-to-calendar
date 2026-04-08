@@ -1,33 +1,18 @@
 # Project Backlog
 
-**Last Updated**: 2026-04-05
+**Last Updated**: 2026-04-07
 **Session Context**: See [.claude/INDEX.md](../.claude/INDEX.md)
 
 ---
 
 ## NEXT (This or Next Session)
 
-_Backlog is clear. All items completed. Only blocked item remains (Brisbane — waiting on Kit)._
+- Monitor Friday cron fires correctly with new CRON_SECRET auth
+- Evaluate Vercel Hobby plan cron reliability — may need alternative trigger
 
 ---
 
 ## BACKLOG (Lower Priority)
-
-### Data Reconciliation for Missed Weeks
-**Priority**: MEDIUM
-**Estimated Effort**: 3-4 hours
-**Status**: Planning
-
-If any weekly aggregations fail, implement a reconciliation process to backfill missing weeks.
-
-**Deliverables**:
-- Script to detect missing weekly aggregates
-- Manual aggregation trigger endpoint
-- Health check endpoint reporting aggregation status
-
-**Dependencies**:
-- ✅ Weekly aggregates working
-- ❌ Need monitoring/alerts first
 
 ### Metrics Export Functionality
 **Priority**: LOW
@@ -69,6 +54,14 @@ Brisbane/Queensland isn't in Kit's timezone dropdown. Drafted feature request to
 ---
 
 ---
+
+## Completed (Apr 7, 2026)
+
+✅ Fixed WoW comparison — now compares last two completed Mon-Sun weeks (was comparing partial current week to full last week)
+✅ Added backfill route — `?backfill=true&secret=...&weeks=N` re-aggregates from daily data with `force` option
+✅ Backfilled 4 weeks of weekend data (04/05: 239→396, 03/29: 395→460, 03/22: 293→350, 03/15: 317→340)
+✅ Secured GET endpoint — requires Vercel CRON_SECRET header or query param (was unauthenticated, bots were triggering reports)
+✅ Data reconciliation backlog item completed via backfill route
 
 ## Completed (Apr 5, 2026) — Session 2
 

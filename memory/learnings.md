@@ -38,6 +38,24 @@ The midnight-UTC check is `hour === 0 && minute === 0 && second === 0`.
 
 ---
 
+## Weekly Report — Lessons Learned (2026-04-07)
+
+### Partial-week WoW is meaningless
+- **Bug**: Report compared current partial week (e.g. 2 days = 78 events) to last full week (7 days = 239), showing -67%. Completely artificial.
+- **Fix**: `generateWeeklyReport()` strips the current partial week. "This week" = last completed Mon-Sun. "Last week" = the one before. Always apples-to-apples.
+- **Rule**: Never compare partial periods to full periods in trend metrics.
+
+### Unauthenticated endpoints WILL get hit
+- **Bug**: GET handler checked that `WEEKLY_REPORT_SECRET` env var *existed* but never verified it against the request. Bots/crawlers triggered spurious Slack reports.
+- **Fix**: GET handler requires either `Authorization: Bearer <CRON_SECRET>` (Vercel cron) or `?secret=` query param (manual). `CRON_SECRET` set in Vercel env vars.
+- **Rule**: Every endpoint that has side effects (sending messages, writing data) needs auth, even if "only" called by cron.
+
+### Backfill has a time window
+- Daily data has 30-day TTL. Weekly aggregates created from daily data can only be backfilled within that window. After 30 days, the stale aggregate is all you have.
+- Backfill route: `GET /api/weekly-report?backfill=true&secret=...&weeks=N` (max 8).
+
+---
+
 ## Observability System (added 2026-04-05)
 
 ### What's running
