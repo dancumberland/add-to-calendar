@@ -8,6 +8,7 @@ Quick overview of all development sessions with brief summaries and status indic
 
 | Date | Session | Type | Status | Summary |
 |------|---------|------|--------|---------|
+| 260408.1605 | [Kit V2 Format](./sessions/260408.1605-kit-v2-format.md) | feature | ✅ | Schema monitor caught Kit's new payload format (start/duration/timezone); added v2 support alongside v1 |
 | 260407.0947 | [Weekly Report Fix](./sessions/260407.0947-weekly-report-fix.md) | bugfix | ✅ | Fixed WoW to compare full completed weeks, backfilled 4 weeks of weekend data, secured unauthenticated GET endpoint |
 | 260405.1500 | [Alerts, Weekend Fix, Dashboard](./sessions/260405.1500-alerts-weekend-fix-dashboard.md) | feature | ✅ | Cron failure Slack alerts, fixed Sat/Sun data gap in weekly aggregation, built Chart.js metrics dashboard with dashboard link in all Slack messages |
 | 260405.0800 | [Observability + VPS Logging](./sessions/260405.0800-observability-vps-logging.md) | infrastructure | ✅ | Fixed Apple Calendar 500 error, built corpus logging/schema monitor/CI gate/health check, replaced BetterStack with self-hosted VPS log receiver (unlimited retention), closed BetterStack account |
