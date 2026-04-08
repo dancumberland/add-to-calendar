@@ -87,6 +87,29 @@ TEST_CASES = [
             "description": "Automated health check",
         },
     },
+    # ===== V2 FORMAT (Kit April 2026+) =====
+    {
+        "name": "V2 / Central (ISO start + duration + IANA TZ)",
+        "settings": {
+            "title": "Weekly Health Check",
+            "start": "2026-04-15T10:00:00",
+            "duration": "60",
+            "timezone": "America/Chicago",
+            "location": "Online",
+            "description": "Automated health check — V2 format",
+        },
+    },
+    {
+        "name": "V2 / Sydney (ahead-of-UTC, IANA TZ)",
+        "settings": {
+            "title": "Weekly Health Check",
+            "start": "2026-04-15T09:00:00",
+            "duration": "60",
+            "timezone": "Australia/Sydney",
+            "location": "Online",
+            "description": "Automated health check — V2 format",
+        },
+    },
 ]
 
 
@@ -278,7 +301,7 @@ def build_slack_payload(results, total_ms):
     if all_ok:
         blocks.append({
             "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "Google ✓  Apple (ICS fetched) ✓  Outlook ✓  Office 365 ✓  ·  4 timezones  ·  end-to-end HTTP"}]
+            "elements": [{"type": "mrkdwn", "text": "Google ✓  Apple (ICS fetched) ✓  Outlook ✓  Office 365 ✓  ·  6 scenarios (v1+v2)  ·  end-to-end HTTP"}]
         })
 
     blocks.append({

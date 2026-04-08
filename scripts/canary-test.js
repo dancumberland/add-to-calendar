@@ -94,6 +94,35 @@ const CANARY_TESTS = [
       dtstart_contains: "20260414T23", // 9 AM Brisbane = Apr 14 23:00 UTC
     },
   },
+  // ===== V2 FORMAT (Kit April 2026+) =====
+  {
+    name: "V2 — Central timezone, 60-min duration",
+    description: "V2 format: ISO local start, duration in minutes, IANA timezone. Must produce correct DTSTART.",
+    settings: {
+      title: "Canary Test Event",
+      start: "2026-04-10T10:00:00",
+      duration: "60",
+      timezone: "America/Chicago",
+      description: "Canary test — V2 format",
+    },
+    expect: {
+      dtstart_contains: "20260410T150000Z", // 10 AM CDT (UTC-5) = 15:00 UTC
+    },
+  },
+  {
+    name: "V2 — ahead-of-UTC timezone (Sydney)",
+    description: "V2 format with UTC+ timezone. No Mode A/B/C ambiguity — just local datetime + IANA zone.",
+    settings: {
+      title: "Canary Test Event",
+      start: "2026-04-10T09:00:00",
+      duration: "60",
+      timezone: "Australia/Sydney",
+      description: "Canary test — V2 Sydney",
+    },
+    expect: {
+      dtstart_contains: "20260409T230000Z", // 9 AM AEST (UTC+10, no DST in April) = Apr 9 23:00 UTC
+    },
+  },
   {
     name: "% character in description (double-decode regression)",
     description: "Event description contains a % sign. Must not throw URIError. This is the Ballantyne bug class.",
