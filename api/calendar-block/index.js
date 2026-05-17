@@ -736,8 +736,9 @@ export default async function handler(req, res) {
       }
     };
 
-    // Mobile: stack buttons vertically below 480px. Falls back to today's
-    // horizontal layout in clients that strip <style> blocks.
+    // Mobile: stack buttons vertically below 480px. Cap the button width so
+    // rounded_corners: 50% doesn't stretch the buttons into long ellipses.
+    // Falls back to today's horizontal layout in clients that strip <style> blocks.
     const responsiveStyle = `
       <style>
         @media only screen and (max-width: 480px) {
@@ -746,9 +747,11 @@ export default async function handler(req, res) {
             display: block !important;
             width: 100% !important;
             padding: 4px 0 !important;
+            text-align: center !important;
           }
           .kc-btn-cell a {
-            display: block !important;
+            display: inline-block !important;
+            min-width: 140px !important;
             margin: 0 !important;
           }
         }
