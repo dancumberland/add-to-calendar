@@ -12,8 +12,21 @@ Read this before touching date parsing, timezone logic, or the observability sys
 | 2 | 2026-03 | Kirstin (Paige Brunton) | Eastern timezone date off by -1 | Mode B not detected; midnight UTC was shifted by TZ offset | Detect midnight UTC, use UTC date directly |
 | 3 | 2026-03 | US TZ user | Wrong date near midnight | Browser TZ ≠ Kit account TZ edge case | `max(utcDate, targetTZDate)` guard |
 | 4 | 2026-04 | Ballantyne (Paige Brunton) | Apple Calendar 500 error | Double `decodeURIComponent()` on ICS query params | Remove redundant decode calls |
+| 5 | 2026-05 | Shannon Mattern | Buttons squeezed/truncated on mobile | Four-button horizontal row had no responsive breakpoint | `<style>` block with `@media (max-width: 480px)` stacks button cells vertically |
 
-**Pattern**: Every bug was caught by a user, not internal monitoring. Four bugs, four user reports.
+**Pattern**: Every bug was caught by a user, not internal monitoring. Five bugs, five user reports.
+
+---
+
+## Mobile Button Layout (added 2026-05-17)
+
+The calendar block returns inline HTML embedded into Kit's email template. The four buttons live in a single `<tr>`/`<td>` row — fine on desktop, but four ~90px buttons fight for ~340px on a phone, so labels truncate ("Goo gle", "Out look").
+
+**Fix**: prepend a `<style>` block with classes `kc-btn-table` and `kc-btn-cell`; under `@media (max-width: 480px)` the cells flip to `display: block; width: 100%`. Falls back to today's horizontal layout in any client that strips `<style>` tags.
+
+**Why a `<style>` block in the body works for Kit emails**: every major mobile client (iOS Mail, Gmail iOS/Android, Outlook mobile) honors media queries in body `<style>`. Kit's own broadcast templates use the same pattern, so it survives Kit's HTML processing.
+
+**Kit cache caveat**: Kit caches the rendered HTML server-side. Users may need to delete and re-add the calendar block in an existing broadcast to see the fix. New broadcasts pick it up automatically.
 
 ---
 

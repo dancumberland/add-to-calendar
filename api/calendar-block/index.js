@@ -736,22 +736,42 @@ export default async function handler(req, res) {
       }
     };
 
+    // Mobile: stack buttons vertically below 480px. Falls back to today's
+    // horizontal layout in clients that strip <style> blocks.
+    const responsiveStyle = `
+      <style>
+        @media only screen and (max-width: 480px) {
+          .kc-btn-table { width: 100% !important; }
+          .kc-btn-cell {
+            display: block !important;
+            width: 100% !important;
+            padding: 4px 0 !important;
+          }
+          .kc-btn-cell a {
+            display: block !important;
+            margin: 0 !important;
+          }
+        }
+      </style>
+    `;
+
     const html = `
+      ${responsiveStyle}
       <table width="100%" border="0" cellpadding="0" cellspacing="0" style="font-family: Helvetica, Arial, sans-serif;">
         <tr>
           <td align="${getTableAlign(alignment)}" style="padding: 0;">
-            <table border="0" cellpadding="0" cellspacing="0">
+            <table class="kc-btn-table" border="0" cellpadding="0" cellspacing="0">
               <tr>
-                <td style="padding: 0 5px;">
+                <td class="kc-btn-cell" style="padding: 0 5px;">
                   <a href="${googleUrl}" style="${buttonStyle}">Google</a>
                 </td>
-                <td style="padding: 0 5px;">
+                <td class="kc-btn-cell" style="padding: 0 5px;">
                   <a href="${icsUrl}" style="${buttonStyle}">Apple</a>
                 </td>
-                <td style="padding: 0 5px;">
+                <td class="kc-btn-cell" style="padding: 0 5px;">
                   <a href="${outlookUrl}" style="${buttonStyle}">Outlook</a>
                 </td>
-                <td style="padding: 0 5px;">
+                <td class="kc-btn-cell" style="padding: 0 5px;">
                   <a href="${office365Url}" style="${buttonStyle}">Office 365</a>
                 </td>
               </tr>
