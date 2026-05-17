@@ -4,6 +4,12 @@ Quick overview of all development sessions with brief summaries and status indic
 
 ## 2026 Sessions
 
+### May
+
+| Date | Session | Type | Status | Summary |
+|------|---------|------|--------|---------|
+| 260517.1500 | [Mobile Button Stacking](./sessions/260517.1500-mobile-button-stacking.md) | bugfix | ✅ | Stack buttons vertically below 480px (Shannon Mattern report); verified at 5 viewports via Playwright before shipping reply |
+
 ### April
 
 | Date | Session | Type | Status | Summary |
