@@ -1,5 +1,6 @@
 import { trackDailyUsage } from "../../utils/analytics.js";
 import { DateTime } from "luxon";
+import { resolveTimezone, recoverClickedDate } from "../../utils/kitDate.js";
 
 // Corpus logger — POSTs to VPS receiver (unlimited retention, JSONL files).
 // VPS_LOG_URL: http://159.203.139.119:9201/log
@@ -22,312 +23,9 @@ function corpusLog(payload) {
   }
 }
 
-// Complete timezone mapping based on Rails ActiveSupport::TimeZone
-// Kit is a Rails app, so its timezone picker uses these exact names.
-// Source: https://api.rubyonrails.org/classes/ActiveSupport/TimeZone.html
-//
-// Format: Kit may send just the name ("Abu Dhabi") or with offset ("Abu Dhabi (GMT+04:00)")
-// The mapTimezoneToIANA function handles both via exact match + name extraction.
-const TIMEZONE_MAP = {
-  // ============ RAILS ActiveSupport::TimeZone (134 entries) ============
-  // These are the EXACT names from Rails' timezone list.
-  // Kit is a Rails app, so this is what its picker sends.
-
-  // --- UTC-12 to UTC-8 ---
-  'International Date Line West': 'Etc/GMT+12',
-  'Midway Island': 'Pacific/Midway',
-  'American Samoa': 'Pacific/Pago_Pago',
-  'Hawaii': 'Pacific/Honolulu',
-  'Alaska': 'America/Juneau',
-  'Pacific Time (US & Canada)': 'America/Los_Angeles',
-  'Tijuana': 'America/Tijuana',
-
-  // --- UTC-7 ---
-  'Mountain Time (US & Canada)': 'America/Denver',
-  'Arizona': 'America/Phoenix',
-  'Chihuahua': 'America/Chihuahua',
-  'Mazatlan': 'America/Mazatlan',
-
-  // --- UTC-6 ---
-  'Central Time (US & Canada)': 'America/Chicago',
-  'Saskatchewan': 'America/Regina',
-  'Guadalajara': 'America/Mexico_City',
-  'Mexico City': 'America/Mexico_City',
-  'Monterrey': 'America/Monterrey',
-  'Central America': 'America/Guatemala',
-
-  // --- UTC-5 ---
-  'Eastern Time (US & Canada)': 'America/New_York',
-  'Indiana (East)': 'America/Indiana/Indianapolis',
-  'Bogota': 'America/Bogota',
-  'Lima': 'America/Lima',
-  'Quito': 'America/Lima',
-
-  // --- UTC-4 ---
-  'Atlantic Time (Canada)': 'America/Halifax',
-  'Caracas': 'America/Caracas',
-  'La Paz': 'America/La_Paz',
-  'Santiago': 'America/Santiago',
-
-  // --- UTC-3:30 ---
-  'Newfoundland': 'America/St_Johns',
-
-  // --- UTC-3 ---
-  'Brasilia': 'America/Sao_Paulo',
-  'Buenos Aires': 'America/Argentina/Buenos_Aires',
-  'Montevideo': 'America/Montevideo',
-  'Georgetown': 'America/Guyana',
-  'Puerto Rico': 'America/Puerto_Rico',
-  'Greenland': 'America/Godthab',
-
-  // --- UTC-2 ---
-  'Mid-Atlantic': 'Atlantic/South_Georgia',
-
-  // --- UTC-1 ---
-  'Azores': 'Atlantic/Azores',
-  'Cape Verde Is.': 'Atlantic/Cape_Verde',
-
-  // --- UTC+0 ---
-  'Dublin': 'Europe/Dublin',
-  'Edinburgh': 'Europe/London',
-  'Lisbon': 'Europe/Lisbon',
-  'London': 'Europe/London',
-  'Casablanca': 'Africa/Casablanca',
-  'Monrovia': 'Africa/Monrovia',
-  'UTC': 'Etc/UTC',
-
-  // --- UTC+1 ---
-  'Belgrade': 'Europe/Belgrade',
-  'Bratislava': 'Europe/Bratislava',
-  'Budapest': 'Europe/Budapest',
-  'Ljubljana': 'Europe/Ljubljana',
-  'Prague': 'Europe/Prague',
-  'Sarajevo': 'Europe/Sarajevo',
-  'Skopje': 'Europe/Skopje',
-  'Warsaw': 'Europe/Warsaw',
-  'Zagreb': 'Europe/Zagreb',
-  'Brussels': 'Europe/Brussels',
-  'Copenhagen': 'Europe/Copenhagen',
-  'Madrid': 'Europe/Madrid',
-  'Paris': 'Europe/Paris',
-  'Amsterdam': 'Europe/Amsterdam',
-  'Berlin': 'Europe/Berlin',
-  'Bern': 'Europe/Zurich',
-  'Zurich': 'Europe/Zurich',
-  'Rome': 'Europe/Rome',
-  'Stockholm': 'Europe/Stockholm',
-  'Vienna': 'Europe/Vienna',
-  'West Central Africa': 'Africa/Algiers',
-
-  // --- UTC+2 ---
-  'Bucharest': 'Europe/Bucharest',
-  'Cairo': 'Africa/Cairo',
-  'Helsinki': 'Europe/Helsinki',
-  'Kyiv': 'Europe/Kiev',
-  'Riga': 'Europe/Riga',
-  'Sofia': 'Europe/Sofia',
-  'Tallinn': 'Europe/Tallinn',
-  'Vilnius': 'Europe/Vilnius',
-  'Athens': 'Europe/Athens',
-  'Istanbul': 'Europe/Istanbul',
-  'Minsk': 'Europe/Minsk',
-  'Jerusalem': 'Asia/Jerusalem',
-  'Harare': 'Africa/Harare',
-  'Pretoria': 'Africa/Johannesburg',
-
-  // --- UTC+3 ---
-  'Kaliningrad': 'Europe/Kaliningrad',
-  'Moscow': 'Europe/Moscow',
-  'St. Petersburg': 'Europe/Moscow',
-  'Volgograd': 'Europe/Volgograd',
-  'Samara': 'Europe/Samara',
-  'Kuwait': 'Asia/Kuwait',
-  'Riyadh': 'Asia/Riyadh',
-  'Nairobi': 'Africa/Nairobi',
-  'Baghdad': 'Asia/Baghdad',
-
-  // --- UTC+3:30 ---
-  'Tehran': 'Asia/Tehran',
-
-  // --- UTC+4 (THE DUBAI/UAE FIX) ---
-  'Abu Dhabi': 'Asia/Muscat',   // ← This is what Kit sends for UAE!
-  'Muscat': 'Asia/Muscat',
-  'Baku': 'Asia/Baku',
-  'Tbilisi': 'Asia/Tbilisi',
-  'Yerevan': 'Asia/Yerevan',
-
-  // --- UTC+4:30 ---
-  'Kabul': 'Asia/Kabul',
-
-  // --- UTC+5 ---
-  'Ekaterinburg': 'Asia/Yekaterinburg',
-  'Islamabad': 'Asia/Karachi',
-  'Karachi': 'Asia/Karachi',
-  'Tashkent': 'Asia/Tashkent',
-
-  // --- UTC+5:30 ---
-  'Chennai': 'Asia/Kolkata',
-  'Kolkata': 'Asia/Kolkata',
-  'Mumbai': 'Asia/Kolkata',
-  'New Delhi': 'Asia/Kolkata',
-  'Sri Jayawardenepura': 'Asia/Colombo',
-
-  // --- UTC+5:45 ---
-  'Kathmandu': 'Asia/Kathmandu',
-
-  // --- UTC+6 ---
-  'Astana': 'Asia/Dhaka',
-  'Dhaka': 'Asia/Dhaka',
-  'Almaty': 'Asia/Almaty',
-
-  // --- UTC+6:30 ---
-  'Novosibirsk': 'Asia/Novosibirsk',
-  'Rangoon': 'Asia/Rangoon',
-
-  // --- UTC+7 ---
-  'Bangkok': 'Asia/Bangkok',
-  'Hanoi': 'Asia/Bangkok',
-  'Jakarta': 'Asia/Jakarta',
-  'Krasnoyarsk': 'Asia/Krasnoyarsk',
-
-  // --- UTC+8 ---
-  'Beijing': 'Asia/Shanghai',
-  'Chongqing': 'Asia/Chongqing',
-  'Hong Kong': 'Asia/Hong_Kong',
-  'Urumqi': 'Asia/Urumqi',
-  'Kuala Lumpur': 'Asia/Kuala_Lumpur',
-  'Singapore': 'Asia/Singapore',
-  'Taipei': 'Asia/Taipei',
-  'Perth': 'Australia/Perth',
-  'Irkutsk': 'Asia/Irkutsk',
-
-  // --- UTC+9 ---
-  'Ulaanbaatar': 'Asia/Ulaanbaatar',
-  'Seoul': 'Asia/Seoul',
-  'Osaka': 'Asia/Tokyo',
-  'Sapporo': 'Asia/Tokyo',
-  'Tokyo': 'Asia/Tokyo',
-  'Yakutsk': 'Asia/Yakutsk',
-
-  // --- UTC+9:30 ---
-  'Darwin': 'Australia/Darwin',
-  'Adelaide': 'Australia/Adelaide',
-
-  // --- UTC+10 ---
-  'Canberra': 'Australia/Melbourne',
-  'Melbourne': 'Australia/Melbourne',
-  'Sydney': 'Australia/Sydney',
-  'Brisbane': 'Australia/Brisbane',
-  'Hobart': 'Australia/Hobart',
-  'Vladivostok': 'Asia/Vladivostok',
-  'Guam': 'Pacific/Guam',
-  'Port Moresby': 'Pacific/Port_Moresby',
-
-  // --- UTC+11 ---
-  'Magadan': 'Asia/Magadan',
-  'Srednekolymsk': 'Asia/Srednekolymsk',
-  'Solomon Is.': 'Pacific/Guadalcanal',
-  'New Caledonia': 'Pacific/Noumea',
-
-  // --- UTC+12 ---
-  'Fiji': 'Pacific/Fiji',
-  'Kamchatka': 'Asia/Kamchatka',
-  'Marshall Is.': 'Pacific/Majuro',
-  'Auckland': 'Pacific/Auckland',
-  'Wellington': 'Pacific/Auckland',
-
-  // --- UTC+13 ---
-  "Nuku'alofa": 'Pacific/Tongatapu',
-  'Tokelau Is.': 'Pacific/Fakaofo',
-  'Chatham Is.': 'Pacific/Chatham',
-  'Samoa': 'Pacific/Apia',
-
-  // ============ LEGACY ALIASES ============
-  // Additional formats we've seen Kit send historically (with GMT offset suffix)
-  // and common alternate names. Kept for backwards compatibility.
-  'Pacific Time (GMT-08:00)': 'America/Los_Angeles',
-  'Mountain Time (GMT-07:00)': 'America/Denver',
-  'Central Time (GMT-06:00)': 'America/Chicago',
-  'Eastern Time (GMT-05:00)': 'America/New_York',
-  'Dubai': 'Asia/Dubai',
-  'Dubai (GMT+04:00)': 'Asia/Dubai',
-  'Queensland': 'Australia/Brisbane',
-  'GMT': 'UTC',
-  'India': 'Asia/Kolkata',
-  'Nepal': 'Asia/Kathmandu',
-};
-
-function mapTimezoneToIANA(kitTimezone) {
-  if (!kitTimezone) {
-    console.warn('⚠️ TIMEZONE MISSING: No timezone provided, defaulting to UTC');
-    return 'UTC';
-  }
-
-  // Step 1: If it's already in IANA format (contains '/'), validate and return
-  if (kitTimezone.includes('/')) {
-    const testDt = DateTime.now().setZone(kitTimezone);
-    if (testDt.isValid) {
-      return kitTimezone;
-    }
-    console.warn(`Invalid IANA timezone: ${kitTimezone}, defaulting to UTC`);
-    return 'UTC';
-  }
-
-  // Step 2: Try exact match (e.g., "Abu Dhabi", "Pacific Time (US & Canada)")
-  if (TIMEZONE_MAP[kitTimezone]) {
-    return TIMEZONE_MAP[kitTimezone];
-  }
-
-  // Step 3: Try case-insensitive exact match
-  const lowerInput = kitTimezone.toLowerCase().trim();
-  for (const [key, value] of Object.entries(TIMEZONE_MAP)) {
-    if (key.toLowerCase() === lowerInput) {
-      return value;
-    }
-  }
-
-  // Step 4: Strip GMT offset suffix and try matching the name part
-  // Handles: "Abu Dhabi (GMT+04:00)" → "Abu Dhabi"
-  // Also:    "(GMT+04:00) Abu Dhabi" → "Abu Dhabi"
-  const nameWithoutOffset = kitTimezone
-    .replace(/\s*\(GMT[+-]?\d{2}:\d{2}\)\s*/g, '')  // Remove "(GMT+04:00)" anywhere
-    .replace(/\s*GMT[+-]?\d{2}:\d{2}\s*/g, '')       // Remove bare "GMT+04:00"
-    .trim();
-
-  if (nameWithoutOffset && TIMEZONE_MAP[nameWithoutOffset]) {
-    return TIMEZONE_MAP[nameWithoutOffset];
-  }
-  // Case-insensitive after stripping offset
-  if (nameWithoutOffset) {
-    const lowerName = nameWithoutOffset.toLowerCase();
-    for (const [key, value] of Object.entries(TIMEZONE_MAP)) {
-      if (key.toLowerCase() === lowerName) {
-        return value;
-      }
-    }
-  }
-
-  // Step 5: LAST RESORT — extract GMT offset and use fixed-offset timezone
-  // This is better than falling back to UTC because it preserves the correct offset.
-  // Works perfectly for non-DST zones (Dubai, India, etc.) and is close enough
-  // for DST zones (off by 1 hour during DST transition, vs potentially 12 hours with UTC).
-  const offsetMatch = kitTimezone.match(/GMT([+-])(\d{2}):(\d{2})/);
-  if (offsetMatch) {
-    const sign = offsetMatch[1];
-    const hours = parseInt(offsetMatch[2], 10);
-    const minutes = parseInt(offsetMatch[3], 10);
-    const fixedOffset = `UTC${sign}${hours}${minutes > 0 ? ':' + String(minutes).padStart(2, '0') : ''}`;
-    const testDt = DateTime.now().setZone(fixedOffset);
-    if (testDt.isValid) {
-      console.warn(`⚠️ TIMEZONE NAME NOT FOUND: "${kitTimezone}" - using extracted offset ${fixedOffset}. Add this timezone name to TIMEZONE_MAP!`);
-      return fixedOffset;
-    }
-  }
-
-  // Step 6: True fallback — log loudly so we can fix the map
-  console.error(`🚨 TIMEZONE NOT FOUND: "${kitTimezone}" - defaulting to UTC. THIS WILL CAUSE DATE ERRORS FOR USERS AHEAD OF UTC. Add this timezone to TIMEZONE_MAP immediately!`);
-  return 'UTC';
-}
+// Timezone resolution (TIMEZONE_MAP + resolveTimezone) and the Kit date-recovery logic
+// now live in utils/kitDate.js — the single source of truth shared with the test suite.
+// See docs/KIT-DATE-SPEC.md and memory/learnings.md for the bug history.
 
 // Infer event type from title/description for analytics
 function inferEventType(title, description = '') {
@@ -503,7 +201,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ code: 200, html: placeholderHtml });
     }
 
-    let startDateTime, endDateTime, ianaTimezone, isDateOnly, isMidnightUTC;
+    let startDateTime, endDateTime, ianaTimezone, detectedMode, tzMethod;
 
     if (isV2Format) {
       // ===== V2 FORMAT (Kit April 2026+) =====
@@ -541,46 +239,46 @@ export default async function handler(req, res) {
         throw new Error(`Invalid end AM/PM: '${end_ampm}'. Expected 'AM' or 'PM'`);
       }
 
-      // Map Kit's timezone format to IANA format that Luxon understands
-      ianaTimezone = mapTimezoneToIANA(tz);
-      debug('V1 INPUT:', { dateISO, start_time, start_ampm, end_time, end_ampm, tz, ianaTimezone, alignment });
-
-      // Kit's date picker behavior varies:
-      //
-      // Mode A — "Midnight-local-as-UTC": The picker sends midnight in the user's BROWSER
-      //   timezone encoded as UTC. A Brisbane (UTC+10) user selecting Feb 5 sends
-      //   "2026-02-04T14:00:00.000Z" (Feb 5 00:00 AEST = Feb 4 14:00 UTC).
-      //   → Non-midnight UTC time → convert UTC→target TZ to recover the intended date.
-      //
-      // Mode B — "Date-only or midnight-UTC": The picker sends a plain date ("2026-03-18")
-      //   or midnight UTC ("2026-03-18T00:00:00.000Z"). The UTC date IS the intended date.
-      //   → Midnight UTC or no time component → use the UTC date directly.
-      //
-      // Without Mode B handling, US/western users get dates shifted back one day:
-      //   "2026-03-18T00:00:00Z" → Eastern (UTC-4) → March 17 20:00 → wrong date.
-      const utcMoment = DateTime.fromISO(dateISO, { zone: 'utc' });
-      isDateOnly = !dateISO.includes('T');
-      // Mode B detection: UTC time is exactly midnight (00:00:00.000).
-      // Tolerance: sub-second jitter is safe (second === 0 passes even with ms offset).
-      // Not safe: if Kit ever sends 00:00:01Z or later, this routes to Mode A (date-off-by-one
-      // for UTC+ users). In practice Kit constructs dates from date values, not timestamps,
-      // so non-zero seconds are not expected. Validated: Kit sends .000Z exactly.
-      isMidnightUTC = utcMoment.hour === 0 && utcMoment.minute === 0 && utcMoment.second === 0;
-
-      let datePart;
-      if (isDateOnly || isMidnightUTC) {
-        // Plain date or midnight UTC — the UTC date IS the intended date
-        datePart = utcMoment.toISODate();
-      } else {
-        // Non-midnight UTC — date picker sent midnight-in-local-time as UTC
-        // Take the later of UTC date and target-TZ date to handle browser TZ ≠ account TZ
-        const dateInTargetTz = utcMoment.setZone(ianaTimezone);
-        const utcDate = utcMoment.toISODate();
-        const tzDate = dateInTargetTz.toISODate();
-        datePart = utcDate > tzDate ? utcDate : tzDate;
+      // Map Kit's timezone format to IANA, and surface unmapped names to the watchdog.
+      const tzResolution = resolveTimezone(tz);
+      ianaTimezone = tzResolution.iana;
+      tzMethod = tzResolution.method;
+      if (!tzResolution.matched) {
+        // Unmapped timezone NAME → fixed-offset/UTC fallback. The date is still recovered
+        // correctly, but the event TIME may be 1h off in summer (fixed offset = no DST).
+        // Track it so we can add the name to utils/kitDate.js before more creators hit it.
+        corpusLog({
+          event: 'kit_timezone_unmapped',
+          timestamp: new Date().toISOString(),
+          raw_tz: tz,
+          resolved_iana: tzResolution.iana,
+          method: tzResolution.method,
+        });
+        const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+        if (webhookUrl) {
+          fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              blocks: [{
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: `⚠️ *Kit Calendar — Unmapped timezone*\nKit sent \`${tz}\`, which isn't in TIMEZONE_MAP; fell back to \`${tzResolution.iana}\` (${tzResolution.method}). Event times may be 1h off in summer. Add it to utils/kitDate.js.`,
+                },
+              }],
+            }),
+          }).catch(e => console.error('Unmapped-tz alert failed:', e.message));
+        }
       }
+      debug('V1 INPUT:', { dateISO, start_time, start_ampm, end_time, end_ampm, tz, ianaTimezone, tzMethod, alignment });
 
-      debug('V1 DATE PARSE:', { isDateOnly, isMidnightUTC, datePart, utc: utcMoment.toISODate() });
+      // Recover the wall-clock date the creator clicked. The Mode A/B/C handling and the
+      // "browser east of event tz" fix live in utils/kitDate.js (single source of truth).
+      const { date: datePart, mode: dateMode } = recoverClickedDate(dateISO, ianaTimezone);
+      detectedMode = dateMode;
+
+      debug('V1 DATE PARSE:', { dateMode, datePart });
 
       // Construct a parseable 12-hour format string
       const fullStartString = `${datePart} ${start_time} ${start_ampm}`;
@@ -802,8 +500,9 @@ export default async function handler(req, res) {
       corpusEntry.duration_minutes = durationMinutes;
     } else {
       corpusEntry.raw_date_iso = dateISO;
-      corpusEntry.detected_mode = isDateOnly ? 'date-only' : isMidnightUTC ? 'midnight-utc' : 'midnight-local-as-utc';
+      corpusEntry.detected_mode = detectedMode;
       corpusEntry.timezone_raw = tz;
+      corpusEntry.timezone_method = tzMethod;
       corpusEntry.start_time = `${start_time} ${start_ampm}`;
       corpusEntry.end_time = `${end_time} ${end_ampm}`;
     }

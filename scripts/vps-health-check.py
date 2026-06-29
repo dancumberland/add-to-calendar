@@ -38,6 +38,8 @@ REQUEST_TIMEOUT = 20  # seconds
 # Test scenarios — covers all three Kit date modes and key timezone regions.
 # Include a % in one description to keep the double-decode regression tested.
 # ---------------------------------------------------------------------------
+# Each case carries expect_dtstart: the resolved DTSTART the ICS must contain. This makes
+# the check answer "is the DATE actually right", not just "did the box return a file".
 TEST_CASES = [
     {
         "name": "Pacific / Mode A (browser midnight-as-UTC)",
@@ -50,6 +52,7 @@ TEST_CASES = [
             "location": "Online",
             "description": "Automated health check",
         },
+        "expect_dtstart": "20260415T170000Z",   # 10 AM PDT (UTC-7) = 17:00 UTC
     },
     {
         "name": "Eastern / Mode B (midnight-UTC, Kirstin bug)",
@@ -62,6 +65,7 @@ TEST_CASES = [
             "location": "Online",
             "description": "Automated health check — 100% automated",   # % char: ICS decode regression
         },
+        "expect_dtstart": "20260415T140000Z",   # 10 AM EDT (UTC-4) = 14:00 UTC
     },
     {
         "name": "Brisbane/AU (ahead of UTC, Mode A)",
@@ -74,6 +78,7 @@ TEST_CASES = [
             "location": "Online",
             "description": "Automated health check",
         },
+        "expect_dtstart": "20260414T230000Z",   # 9 AM Brisbane (UTC+10) = Apr 14 23:00 UTC
     },
     {
         "name": "Dubai/UAE (Rails 'Abu Dhabi' name, Mode A)",
@@ -86,6 +91,34 @@ TEST_CASES = [
             "location": "Online",
             "description": "Automated health check",
         },
+        "expect_dtstart": "20260415T060000Z",   # 10 AM Dubai (UTC+4) = 06:00 UTC
+    },
+    # ===== BROWSER EAST OF EVENT TZ (Helsinki→London class, June 2026) =====
+    {
+        "name": "Helsinki browser -> London event (THE reported bug)",
+        "settings": {
+            "title": "Weekly Health Check",
+            "date": "2026-07-13T21:00:00.000Z",   # Jul 14 00:00 Helsinki (EEST, UTC+3) = Jul 13 21:00 UTC
+            "start_time": "10:00", "start_ampm": "AM",
+            "end_time": "11:00",   "end_ampm": "AM",
+            "tz": "London",
+            "location": "Online",
+            "description": "Automated health check",
+        },
+        "expect_dtstart": "20260714T090000Z",   # date must be Jul 14; 10 AM London BST = 09:00 UTC
+    },
+    {
+        "name": "Combined label 'London, Dublin (GMT+00:00)' (DST-aware, summer)",
+        "settings": {
+            "title": "Weekly Health Check",
+            "date": "2026-07-13T21:00:00.000Z",
+            "start_time": "10:00", "start_ampm": "AM",
+            "end_time": "11:00",   "end_ampm": "AM",
+            "tz": "London, Dublin (GMT+00:00)",
+            "location": "Online",
+            "description": "Automated health check",
+        },
+        "expect_dtstart": "20260714T090000Z",   # grouped label -> Europe/London (BST), not fixed UTC+0
     },
     # ===== V2 FORMAT (Kit April 2026+) =====
     {
@@ -98,6 +131,7 @@ TEST_CASES = [
             "location": "Online",
             "description": "Automated health check — V2 format",
         },
+        "expect_dtstart": "20260415T150000Z",   # 10 AM CDT (UTC-5) = 15:00 UTC
     },
     {
         "name": "V2 / Sydney (ahead-of-UTC, IANA TZ)",
@@ -109,6 +143,7 @@ TEST_CASES = [
             "location": "Online",
             "description": "Automated health check — V2 format",
         },
+        "expect_dtstart": "20260414T230000Z",   # 9 AM Sydney (AEST UTC+10, no DST mid-April) = Apr 14 23:00 UTC
     },
 ]
 
@@ -170,8 +205,10 @@ def validate_outlook_url(url, url_type):
         return False, str(e)
 
 
-def validate_ics_url(ics_url):
-    """Actually fetches the ICS URL and validates the content. This is the critical test."""
+def validate_ics_url(ics_url, expect_dtstart=None):
+    """Fetches the ICS URL and validates content. The critical test.
+    When expect_dtstart is given, also asserts the resolved DTSTART date — this is what
+    catches a 'returns 200 but the date is wrong' regression (the Helsinki->London bug)."""
     if not ics_url:
         return False, "ICS URL missing from HTML"
     try:
@@ -184,6 +221,13 @@ def validate_ics_url(ics_url):
             return False, "invalid ICS: missing BEGIN/END:VCALENDAR"
         if "BEGIN:VEVENT" not in body:
             return False, "invalid ICS: missing VEVENT"
+        if expect_dtstart:
+            m = re.search(r"^DTSTART[^:]*:(.+)$", body, re.MULTILINE)
+            if not m:
+                return False, "DTSTART not found in ICS"
+            dtstart = m.group(1).strip()
+            if expect_dtstart not in dtstart:
+                return False, f"DTSTART wrong date: expected {expect_dtstart!r}, got {dtstart!r}"
         return True, None
     except urllib.error.HTTPError as e:
         return False, f"HTTP {e.code}: {e.reason}"
@@ -240,7 +284,7 @@ def run_test(test_case):
     ok, err = validate_google_url(links["google"])
     result["buttons"]["Google"] = {"ok": ok, "error": err}
 
-    ok, err = validate_ics_url(links["apple"])   # ← actually fetches and reads the ICS file
+    ok, err = validate_ics_url(links["apple"], test_case.get("expect_dtstart"))   # ← fetches + checks the date
     result["buttons"]["Apple"] = {"ok": ok, "error": err}
 
     ok, err = validate_outlook_url(links["outlook"], "outlook")
@@ -301,7 +345,7 @@ def build_slack_payload(results, total_ms):
     if all_ok:
         blocks.append({
             "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "Google ✓  Apple (ICS fetched) ✓  Outlook ✓  Office 365 ✓  ·  6 scenarios (v1+v2)  ·  end-to-end HTTP"}]
+            "elements": [{"type": "mrkdwn", "text": f"Google ✓  Apple (ICS + date) ✓  Outlook ✓  Office 365 ✓  ·  {len(results)} scenarios (v1+v2)  ·  end-to-end HTTP"}]
         })
 
     blocks.append({

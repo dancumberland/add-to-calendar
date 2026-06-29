@@ -4,9 +4,12 @@
 
 import { buildIcs } from "../../utils/buildIcs.js";
 import { DateTime } from "luxon";
+// Shared parser — single source of truth (no more hand-copied subset that drifts).
+import { mapTimezoneToIANA, recoverClickedDate } from "../../utils/kitDate.js";
 
-// Test cases covering different scenarios
-const TEST_CASES = [
+// Test cases covering different scenarios.
+// Exported so the suite can be run as pure unit tests locally (no server needed).
+export const TEST_CASES = [
   {
     name: "Basic event - Pacific timezone (browser sends midnight Pacific as UTC)",
     // User in Pacific selects Feb 15. Browser sends midnight Pacific as UTC:
@@ -406,80 +409,168 @@ const TEST_CASES = [
       outlookDateStart: "2026-07-15T16:00:00Z"
     }
   },
+  // ===== BROWSER EAST OF EVENT TZ (the Helsinki→London class, June 2026) =====
+  // Kit encodes midnight in the creator's BROWSER tz as UTC. When the browser is EAST
+  // of UTC and the event tz is WEST of the browser, the old max(utcDate, tzDate) logic
+  // landed a day early. recoverClickedDate() rounds to the nearest UTC midnight instead.
+  {
+    name: "Helsinki browser → London event (THE reported bug) — shows July 14, not 13",
+    // Helsinki (EEST, UTC+3 in July) midnight Jul 14 = Jul 13 21:00 UTC. Event tz London.
+    settings: {
+      title: "London Event",
+      date: "2026-07-13T21:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM", end_time: "11:00", end_ampm: "AM",
+      tz: "London",
+      location: "London, UK",
+      description: "Regression: browser east of event tz",
+    },
+    expected: {
+      // Jul 14 10:00 London (BST, UTC+1) = Jul 14 09:00 UTC
+      googleDateStart: "20260714T090000Z",
+      outlookDateStart: "2026-07-14T09:00:00Z",
+    },
+  },
+  {
+    name: "Helsinki browser → Helsinki event (control — the 'switch to Helsinki fixes it' case)",
+    settings: {
+      title: "Helsinki Event",
+      date: "2026-07-13T21:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM", end_time: "11:00", end_ampm: "AM",
+      tz: "Helsinki",
+      location: "Helsinki, FI",
+      description: "Control: browser tz == event tz",
+    },
+    expected: {
+      // Jul 14 10:00 Helsinki (EEST, UTC+3) = Jul 14 07:00 UTC
+      googleDateStart: "20260714T070000Z",
+      outlookDateStart: "2026-07-14T07:00:00Z",
+    },
+  },
+  {
+    name: "Dubai browser → London event — date holds at July 14",
+    // Dubai (UTC+4) midnight Jul 14 = Jul 13 20:00 UTC. Event tz London.
+    settings: {
+      title: "London from Dubai",
+      date: "2026-07-13T20:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM", end_time: "11:00", end_ampm: "AM",
+      tz: "London",
+      location: "London, UK",
+      description: "Browser east of event tz (Gulf → UK)",
+    },
+    expected: {
+      googleDateStart: "20260714T090000Z",
+      outlookDateStart: "2026-07-14T09:00:00Z",
+    },
+  },
+  {
+    name: "Sydney browser → Tokyo event — date holds at Jan 20",
+    // Sydney (AEDT, UTC+11 in Jan) midnight Jan 20 = Jan 19 13:00 UTC. Event tz Tokyo.
+    settings: {
+      title: "Tokyo from Sydney",
+      date: "2026-01-19T13:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM", end_time: "11:00", end_ampm: "AM",
+      tz: "Tokyo",
+      location: "Tokyo, JP",
+      description: "Browser east of event tz (AU → JP)",
+    },
+    expected: {
+      // Jan 20 10:00 Tokyo (UTC+9, no DST) = Jan 20 01:00 UTC
+      googleDateStart: "20260120T010000Z",
+      outlookDateStart: "2026-01-20T01:00:00Z",
+    },
+  },
+  {
+    name: "India browser (half-hour) → London event — date holds at July 14",
+    // India (UTC+5:30) midnight Jul 14 = Jul 13 18:30 UTC. Event tz London.
+    settings: {
+      title: "London from Mumbai",
+      date: "2026-07-13T18:30:00.000Z",
+      start_time: "10:00", start_ampm: "AM", end_time: "11:00", end_ampm: "AM",
+      tz: "London",
+      location: "London, UK",
+      description: "Half-hour browser offset, east of event tz",
+    },
+    expected: {
+      googleDateStart: "20260714T090000Z",
+      outlookDateStart: "2026-07-14T09:00:00Z",
+    },
+  },
+  {
+    name: "US Pacific browser → London event (browser WEST — must NOT regress)",
+    // Pacific (PDT, UTC-7) midnight Jul 14 = Jul 14 07:00 UTC. Event tz London.
+    settings: {
+      title: "London from California",
+      date: "2026-07-14T07:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM", end_time: "11:00", end_ampm: "AM",
+      tz: "London",
+      location: "London, UK",
+      description: "Browser west of UTC — old logic already correct, keep it",
+    },
+    expected: {
+      googleDateStart: "20260714T090000Z",
+      outlookDateStart: "2026-07-14T09:00:00Z",
+    },
+  },
+  {
+    name: "Brisbane browser → Eastern event — corrects the spec's old 'Mode C' (April 15, not 14)",
+    // Brisbane (UTC+10) midnight Apr 15 = Apr 14 14:00 UTC. Event tz Eastern.
+    // The creator clicked the 15th and wants the 15th.
+    settings: {
+      title: "Eastern from Brisbane",
+      date: "2026-04-14T14:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM", end_time: "11:00", end_ampm: "AM",
+      tz: "Eastern Time (US & Canada)",
+      location: "Online",
+      description: "Browser far east of event tz",
+    },
+    expected: {
+      // Apr 15 10:00 Eastern (EDT, UTC-4) = Apr 15 14:00 UTC
+      googleDateStart: "20260415T140000Z",
+      outlookDateStart: "2026-04-15T14:00:00Z",
+    },
+  },
+  // ===== COMBINED / WINDOWS-STYLE LABEL ("London, Dublin (GMT+00:00)") =====
+  // If Kit sends a grouped label instead of a bare Rails name, resolveTimezone extracts
+  // the first known city → Europe/London (DST-aware), NOT a fixed UTC+0 offset.
+  {
+    name: "Combined label 'London, Dublin (GMT+00:00)' — WINTER (GMT, no DST)",
+    // Helsinki (EET, UTC+2 in winter) midnight Jan 14 = Jan 13 22:00 UTC.
+    settings: {
+      title: "London winter",
+      date: "2026-01-13T22:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM", end_time: "11:00", end_ampm: "AM",
+      tz: "London, Dublin (GMT+00:00)",
+      location: "London, UK",
+      description: "Combined label resolves to Europe/London",
+    },
+    expected: {
+      // Jan 14 10:00 London (GMT, UTC+0) = Jan 14 10:00 UTC
+      googleDateStart: "20260114T100000Z",
+      outlookDateStart: "2026-01-14T10:00:00Z",
+    },
+  },
+  {
+    name: "Combined label 'London, Dublin (GMT+00:00)' — SUMMER (BST, DST) proves DST-aware",
+    // Helsinki (EEST, UTC+3 in July) midnight Jul 14 = Jul 13 21:00 UTC.
+    // A fixed UTC+0 fallback would give 10:00Z (wrong); Europe/London gives 09:00Z.
+    settings: {
+      title: "London summer",
+      date: "2026-07-13T21:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM", end_time: "11:00", end_ampm: "AM",
+      tz: "London, Dublin (GMT+00:00)",
+      location: "London, UK",
+      description: "Combined label honors British Summer Time",
+    },
+    expected: {
+      // Jul 14 10:00 London (BST, UTC+1) = Jul 14 09:00 UTC
+      googleDateStart: "20260714T090000Z",
+      outlookDateStart: "2026-07-14T09:00:00Z",
+    },
+  },
 ];
 
-function mapTimezoneToIANA(kitTimezone) {
-  if (!kitTimezone) return 'UTC';
-
-  if (kitTimezone.includes('/')) {
-    return kitTimezone;
-  }
-
-  // Subset of timezone mappings for testing - matches calendar-block/index.js
-  // Includes Rails ActiveSupport names (what Kit actually sends)
-  const timezoneMap = {
-    'Pacific Time (US & Canada)': 'America/Los_Angeles',
-    'Pacific Time (GMT-08:00)': 'America/Los_Angeles',
-    'Mountain Time (US & Canada)': 'America/Denver',
-    'Mountain Time (GMT-07:00)': 'America/Denver',
-    'Arizona': 'America/Phoenix',
-    'Phoenix (GMT-07:00)': 'America/Phoenix',
-    'Central Time (US & Canada)': 'America/Chicago',
-    'Central Time (GMT-06:00)': 'America/Chicago',
-    'Eastern Time (US & Canada)': 'America/New_York',
-    'Eastern Time (GMT-05:00)': 'America/New_York',
-    'Abu Dhabi': 'Asia/Muscat',          // Rails name for UAE/Gulf GMT+4
-    'Muscat': 'Asia/Muscat',
-    'Dubai': 'Asia/Dubai',
-    'Chennai': 'Asia/Kolkata',
-    'Kolkata': 'Asia/Kolkata',
-    'Mumbai': 'Asia/Kolkata',
-    'New Delhi': 'Asia/Kolkata',
-    'India (GMT+05:30)': 'Asia/Kolkata',
-    'Kathmandu': 'Asia/Kathmandu',
-    'Nepal (GMT+05:45)': 'Asia/Kathmandu',
-    'Adelaide': 'Australia/Adelaide',
-    'Adelaide (GMT+09:30)': 'Australia/Adelaide',
-    'Brisbane': 'Australia/Brisbane',
-    'Brisbane (GMT+10:00)': 'Australia/Brisbane',
-    'Sydney': 'Australia/Sydney',
-    'Sydney (GMT+10:00)': 'Australia/Sydney',
-    'UTC': 'Etc/UTC',
-  };
-
-  // Try exact match
-  if (timezoneMap[kitTimezone]) return timezoneMap[kitTimezone];
-
-  // Try case-insensitive
-  const lower = kitTimezone.toLowerCase().trim();
-  for (const [key, value] of Object.entries(timezoneMap)) {
-    if (key.toLowerCase() === lower) return value;
-  }
-
-  // Strip GMT offset and try again
-  const nameOnly = kitTimezone
-    .replace(/\s*\(GMT[+-]?\d{2}:\d{2}\)\s*/g, '')
-    .replace(/\s*GMT[+-]?\d{2}:\d{2}\s*/g, '')
-    .trim();
-  if (nameOnly && timezoneMap[nameOnly]) return timezoneMap[nameOnly];
-  if (nameOnly) {
-    const lowerName = nameOnly.toLowerCase();
-    for (const [key, value] of Object.entries(timezoneMap)) {
-      if (key.toLowerCase() === lowerName) return value;
-    }
-  }
-
-  // Extract GMT offset as fallback
-  const offsetMatch = kitTimezone.match(/GMT([+-])(\d{2}):(\d{2})/);
-  if (offsetMatch) {
-    const sign = offsetMatch[1];
-    const hours = parseInt(offsetMatch[2], 10);
-    const minutes = parseInt(offsetMatch[3], 10);
-    return `UTC${sign}${hours}${minutes > 0 ? ':' + String(minutes).padStart(2, '0') : ''}`;
-  }
-
-  return kitTimezone || 'UTC';
-}
+// mapTimezoneToIANA + recoverClickedDate are imported from utils/kitDate.js (top of file)
+// so this suite exercises the REAL production parser, not a copy.
 
 // ---------------------------------------------------------------------------
 // HTTP TEST CASES — actually hit the live endpoints over the network.
@@ -628,7 +719,7 @@ async function runHttpTest(test, baseUrl) {
   return result;
 }
 
-function runTest(testCase) {
+export function runTest(testCase) {
   const { name, settings, expected } = testCase;
   const results = { name, passed: true, errors: [], details: {} };
 
@@ -643,22 +734,9 @@ function runTest(testCase) {
       ianaTimezone = settings.timezone;
       startDateTime = DateTime.fromISO(settings.start, { zone: ianaTimezone });
     } else {
-      // V1: legacy date parsing with Mode A/B/C detection
+      // V1: legacy date parsing — delegates to the shared parser (single source of truth).
       ianaTimezone = mapTimezoneToIANA(settings.tz);
-      const utcMoment = DateTime.fromISO(settings.date, { zone: 'utc' });
-      const isDateOnly = !settings.date.includes('T');
-      const isMidnightUTC = utcMoment.hour === 0 && utcMoment.minute === 0 && utcMoment.second === 0;
-
-      let datePart;
-      if (isDateOnly || isMidnightUTC) {
-        datePart = utcMoment.toISODate();
-      } else {
-        const dateInTargetTz = utcMoment.setZone(ianaTimezone);
-        const utcDate = utcMoment.toISODate();
-        const tzDate = dateInTargetTz.toISODate();
-        datePart = utcDate > tzDate ? utcDate : tzDate;
-      }
-
+      const { date: datePart } = recoverClickedDate(settings.date, ianaTimezone);
       const fullStartString = `${datePart} ${settings.start_time} ${settings.start_ampm}`;
       startDateTime = DateTime.fromFormat(fullStartString, 'yyyy-MM-dd h:mm a', { zone: ianaTimezone });
     }

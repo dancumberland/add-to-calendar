@@ -13,8 +13,9 @@ Read this before touching date parsing, timezone logic, or the observability sys
 | 3 | 2026-03 | US TZ user | Wrong date near midnight | Browser TZ ≠ Kit account TZ edge case | `max(utcDate, targetTZDate)` guard |
 | 4 | 2026-04 | Ballantyne (Paige Brunton) | Apple Calendar 500 error | Double `decodeURIComponent()` on ICS query params | Remove redundant decode calls |
 | 5 | 2026-05 | Shannon Mattern | Buttons squeezed/truncated on mobile | Four-button horizontal row had no responsive breakpoint | `<style>` block with `@media (max-width: 480px)` stacks button cells vertically |
+| 6 | 2026-06 | Trung (Kit) / Finnish creator | Date off by -1 when browser is EAST of the event tz (Helsinki browser, London event → July 14 shows as 13) | `max(utcDate, tzDate)` is blind to browser-east-of-event; both operands land a day early | Round the UTC instant to the NEAREST midnight in `recoverClickedDate()` (`utils/kitDate.js`) |
 
-**Pattern**: Every bug was caught by a user, not internal monitoring. Five bugs, five user reports.
+**Pattern**: Every bug was caught by a user/partner, not internal monitoring. Six bugs, six external reports. The unmapped-tz watchdog + DTSTART-validating canary (added with #6) are the first internal detection for this class.
 
 ---
 
@@ -34,11 +35,11 @@ The calendar block returns inline HTML embedded into Kit's email template. The f
 
 See `docs/KIT-DATE-SPEC.md` for the authoritative specification. Summary:
 
-- **Mode B** (midnight UTC or date-only string): UTC date IS the intended date. Detect with `isMidnightUTC` flag.
-- **Mode A** (non-midnight UTC): Kit browser sent local midnight as UTC. Convert to target TZ to recover intended date.
-- **Mode C** (Mode A but browser TZ ≠ Kit account TZ): Same code path as Mode A; `max()` guard handles near-midnight edge cases.
+- **Mode B** (midnight UTC or date-only string): UTC date IS the intended date.
+- **Mode A** (non-midnight UTC): Kit encoded the creator's BROWSER-local midnight as UTC. Recover the clicked date by rounding the UTC instant to the NEAREST midnight (UTC hour ≥ 12 → next day). Independent of the event tz.
+- **Mode C** (browser TZ ≠ event TZ): same nearest-midnight recovery, then `max(nearestMidnight, eventTzDate)` as a guard for browser offset > +12.
 
-**The `max()` is a tie-breaker, not the primary algorithm.** Primary: convert UTC timestamp to target TZ, extract date.
+**Superseded (2026-06):** the old primary "convert UTC → event tz, extract date" with a `max(utcDate, tzDate)` tie-breaker FAILS when the browser is east of the event tz (Bug 6). Nearest-midnight is the corrected primary algorithm. See the June 2026 section below and `docs/KIT-DATE-SPEC.md` Mode C.
 
 ### V2 Format (detected 2026-04-08)
 
@@ -66,6 +67,26 @@ The midnight-UTC check is `hour === 0 && minute === 0 && second === 0`.
 
 ---
 
+## Browser East of Event TZ — Bug 6 + Shared Module (2026-06-29)
+
+**Symptom**: A creator with a Helsinki browser set an event's timezone to London and picked July 14; the button showed July 13. Switching the event tz to Helsinki "fixed" it. Reported via Kit's tech team (Trung).
+
+**Root cause**: Kit encodes the picked date as midnight in the creator's BROWSER timezone, expressed as UTC. Helsinki (UTC+3 in summer) midnight Jul 14 = Jul 13 21:00 UTC. The old recovery — `max(utcDate, tzDate)` where `tzDate` is the date in the EVENT timezone — gave `max(Jul 13, Jul 13) = Jul 13`. The `max()` only rescues browser-WEST-of-UTC cases; when the browser is east of UTC AND the event tz is west of the browser, BOTH operands land a day early. This is a whole class: Dubai→London, Sydney→Tokyo, India→London, and the spec's own Brisbane→Eastern "Mode C" example were all the same bug.
+
+**Fix**: `recoverClickedDate()` rounds the UTC instant to the NEAREST midnight (UTC hour ≥ 12 → next day), inferring the browser offset from the time-of-day and recovering the clicked wall-clock date independent of the event tz. The event-tz date is kept as a guard via `max(nearestMidnight, eventTzDate)` so the `browser == event tz` case at extreme east offsets (> +12, NZ summer) stays correct. The new value is always ≥ the old one → the change is monotonic and cannot regress a currently-correct case (verified against all prior modes + the existing suite).
+
+**Known limitation**: browser offset > +12 (NZ summer +13, Chatham, Samoa, Kiribati) scheduling an event WEST of the browser is unrecoverable from `(UTC timestamp, event tz)` alone — Kit doesn't send the browser tz. Documented, not solved.
+
+**Structural change — killed the copy.** The date parser + timezone map were extracted to `utils/kitDate.js`, imported by BOTH the endpoint and `api/test-calendars/index.js`. Previously the test kept a hand-copied SUBSET of the map that omitted all of Europe — exactly why this bug had zero test coverage. There is no longer a copy to drift.
+
+**Two new watchdogs (first internal detection for this class):**
+- **Unmapped-tz tracker**: when `resolveTimezone()` can't resolve a NAME and falls back to a fixed offset / UTC, the endpoint logs `kit_timezone_unmapped` + fires a Slack alert. A fixed offset has no DST → 1h-off summer times; this surfaces the next "Abu Dhabi"/"London, Dublin" before a user hits it.
+- **Combined-label handling**: `"London, Dublin (GMT+00:00)"` now resolves to `Europe/London` (DST-aware), not a fixed UTC+0.
+
+**Open question for Kit**: confirm the exact `tz` string Kit sends for the "London, Dublin (GMT+00:00)" option. If it's a bare Rails name ("London"), the map already covered it; if it's the combined label, the new handler covers it. Either way the DATE is fixed — this only affects whether summer event TIMES are correct.
+
+---
+
 ## Weekly Report — Lessons Learned (2026-04-07)
 
 ### Partial-week WoW is meaningless
@@ -89,8 +110,9 @@ The midnight-UTC check is `hour === 0 && minute === 0 && second === 0`.
 ### What's running
 - **Corpus log** (`calendar_block_request`): structured JSON on every request — raw Kit input, detected mode, resolved date. Also logs `calendar_block_error` on failure path. Sent to VPS receiver (unlimited retention, JSONL files). Python HTTP receiver at `159.203.139.119:9201`, PM2 process `kit-log-receiver`, logs at `/home/claude/kit-calendar-log-receiver/logs/corpus-YYYY-MM-DD.jsonl`. Env vars: `VPS_LOG_URL` (`http://159.203.139.119:9201/log`), `VPS_LOG_SECRET`.
 - **Schema monitor** (`kit_schema_change`): fires when Kit sends unknown payload keys. Sends Slack alert via `SLACK_WEBHOOK_URL`. **Scope**: detects key additions only — NOT removal, semantic changes, or encoding drift.
-- **VPS health check** (`scripts/vps-health-check.py`): weekly, 4 timezone scenarios, actually fetches ICS. Deployed at `/home/claude/kit-calendar-health/health_check.py`. Cron: Friday 7pm UTC (verified running 2026-04-05).
-- **Canary** (`scripts/canary-test.js`): validates DTSTART date accuracy (not just structure). Run: `node scripts/canary-test.js`.
+- **VPS health check** (`scripts/vps-health-check.py`): weekly, 8 scenarios, fetches ICS AND asserts the resolved DTSTART date (not just structure). Deployed at `/home/claude/kit-calendar-health/health_check.py`. Cron: Friday 7pm UTC. **Redeploy after edits**: `scp scripts/vps-health-check.py claude@<vps>:/home/claude/kit-calendar-health/health_check.py`.
+- **Canary** (`scripts/canary-test.js`): validates DTSTART date accuracy, 10 scenarios (incl. browser-east + combined label). Run: `node scripts/canary-test.js`.
+- **Unmapped-tz tracker**: `resolveTimezone()` fallback to fixed-offset/UTC logs `kit_timezone_unmapped` + Slack alert — surfaces a new Rails name or label format before a user hits it (the "next Abu Dhabi" early-warning).
 - **CI gate** (`.github/workflows/integration-tests.yml`): HTTP integration tests on every push to main. **Requires VERCEL_TOKEN GitHub secret for SHA-bound testing — fails loudly without it.**
 - **Incident runbook**: `docs/INCIDENT_RUNBOOK.md` — what to do when each alert fires.
 
@@ -140,7 +162,7 @@ Set `DEBUG=true` in `.env.local` to enable verbose diagnostic logging. Never set
 
 - Kit may **cache rendered HTML server-side**. After a fix is deployed, users may need to create a new calendar block to get fresh API responses.
 - Kit's API is **completely undocumented**. All behavior is inferred from failure reports.
-- Kit's timezone picker sends **Rails ActiveSupport timezone names** (e.g. `"Eastern Time (US & Canada)"`, `"Abu Dhabi"`). Mapped in `api/calendar-block/index.js`.
+- Kit's timezone picker sends **Rails ActiveSupport timezone names** (e.g. `"Eastern Time (US & Canada)"`, `"Abu Dhabi"`), and sometimes **grouped Windows-style labels** (`"London, Dublin (GMT+00:00)"`). Resolved in `utils/kitDate.js` (`resolveTimezone`), which handles bare names, `(GMT±..)` suffixes, and combined labels (first known city). Unresolved names hit the unmapped-tz watchdog.
 
 ---
 
@@ -148,5 +170,5 @@ Set `DEBUG=true` in `.env.local` to enable verbose diagnostic logging. Never set
 
 1. Read this file
 2. Read `docs/KIT-DATE-SPEC.md` — the invariant section, not just the examples
-3. Check `api/test-calendars/index.js` — it has a **copy** of the date parsing logic that must stay in sync
-4. When you fix a bug: update both files, add a regression test, update this log
+3. The parser is a **single shared module** — `utils/kitDate.js` (`resolveTimezone` + `recoverClickedDate`). The endpoint AND `api/test-calendars/index.js` both import it, so there is no longer a copy to keep in sync (there used to be — it drifted and hid Bug 6). Change the logic ONLY in `utils/kitDate.js`.
+4. When you fix a bug: change `utils/kitDate.js`, add a regression test to `api/test-calendars/index.js` (and a date-accuracy case to `scripts/canary-test.js` / `scripts/vps-health-check.py`), update this log and `docs/KIT-DATE-SPEC.md`.

@@ -139,6 +139,73 @@ const CANARY_TESTS = [
       ics_contains_description: "20%25 off", // % should be encoded as %25 in ICS URL params
     },
   },
+  // ===== BROWSER EAST OF EVENT TZ (Helsinki→London class, June 2026) =====
+  // The old max(utcDate, tzDate) logic landed a day early when the browser is east of
+  // UTC and the event tz is west of the browser. These pin the date accuracy in prod.
+  {
+    name: "Helsinki browser → London event (THE reported bug)",
+    description: "Helsinki (UTC+3 summer) midnight Jul 14 = Jul 13 21:00 UTC, event tz London. Resolved date must be July 14, not 13.",
+    settings: {
+      title: "Canary Test Event",
+      date: "2026-07-13T21:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM",
+      end_time: "11:00", end_ampm: "AM",
+      tz: "London",
+      description: "Canary — browser east of event tz",
+    },
+    expect: {
+      resolved_date: "2026-07-14",
+      dtstart_contains: "20260714T090000Z", // 10 AM London BST (UTC+1) = 09:00 UTC
+    },
+  },
+  {
+    name: "Dubai browser → London event (class generality)",
+    description: "Dubai (UTC+4) midnight Jul 14 = Jul 13 20:00 UTC, event tz London. Resolved date must be July 14.",
+    settings: {
+      title: "Canary Test Event",
+      date: "2026-07-13T20:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM",
+      end_time: "11:00", end_ampm: "AM",
+      tz: "London",
+      description: "Canary — Gulf browser, UK event",
+    },
+    expect: {
+      resolved_date: "2026-07-14",
+      dtstart_contains: "20260714T090000Z",
+    },
+  },
+  {
+    name: "Brisbane browser → Eastern event (corrected Mode C)",
+    description: "Brisbane (UTC+10) midnight Apr 15 = Apr 14 14:00 UTC, event tz Eastern. Resolved date must be April 15 (creator clicked the 15th).",
+    settings: {
+      title: "Canary Test Event",
+      date: "2026-04-14T14:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM",
+      end_time: "11:00", end_ampm: "AM",
+      tz: "Eastern Time (US & Canada)",
+      description: "Canary — corrected Mode C",
+    },
+    expect: {
+      resolved_date: "2026-04-15",
+      dtstart_contains: "20260415T140000Z", // 10 AM Eastern EDT (UTC-4) = 14:00 UTC
+    },
+  },
+  {
+    name: "Combined label 'London, Dublin (GMT+00:00)' — DST-aware (summer)",
+    description: "Grouped Windows-style label must resolve to Europe/London (BST), not a fixed UTC+0. Jul 14 10:00 London = 09:00 UTC.",
+    settings: {
+      title: "Canary Test Event",
+      date: "2026-07-13T21:00:00.000Z",
+      start_time: "10:00", start_ampm: "AM",
+      end_time: "11:00", end_ampm: "AM",
+      tz: "London, Dublin (GMT+00:00)",
+      description: "Canary — combined label honors BST",
+    },
+    expect: {
+      resolved_date: "2026-07-14",
+      dtstart_contains: "20260714T090000Z",
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
