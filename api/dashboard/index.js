@@ -22,9 +22,11 @@ export default async function handler(req, res) {
     error = e.message;
   }
 
-  const weeks = trendData?.weeklyTotals ?? [];
-  const thisWeek = trendData?.thisWeekTotal ?? 0;
-  const lastWeek = trendData?.lastWeekTotal ?? 0;
+  // Match the weekly Slack report: compare only fully completed Mon-Sun weeks.
+  // getTwelveWeekTrend() includes the current partial week as its final entry.
+  const weeks = (trendData?.weeklyTotals ?? []).slice(0, -1);
+  const thisWeek = weeks.at(-1)?.total ?? 0;
+  const lastWeek = weeks.at(-2)?.total ?? 0;
   const allTime = allTimeData?.totalEvents ?? 0;
   const wowPct = lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : null;
   const wowSign = wowPct !== null ? (wowPct >= 0 ? "+" : "") : "";
@@ -69,19 +71,19 @@ ${error ? `<div class="error">⚠️ Data fetch error: ${error}</div>` : ""}
 
 <div class="cards">
   <div class="card">
-    <div class="card-label">This Week</div>
+    <div class="card-label">Latest Full Week</div>
     <div class="card-value">${thisWeek.toLocaleString()}</div>
     <div class="card-sub">events</div>
   </div>
   <div class="card">
-    <div class="card-label">Last Week</div>
+    <div class="card-label">Prior Full Week</div>
     <div class="card-value">${lastWeek.toLocaleString()}</div>
     <div class="card-sub">events</div>
   </div>
   <div class="card">
     <div class="card-label">Week-over-Week</div>
     <div class="card-value" style="color:${wowColor}">${wowPct !== null ? `${wowSign}${wowPct}%` : "—"}</div>
-    <div class="card-sub">${wowPct !== null ? (wowPct >= 0 ? "up from last week" : "down from last week") : "no prior data"}</div>
+    <div class="card-sub">${wowPct !== null ? (wowPct >= 0 ? "up from prior full week" : "down from prior full week") : "no prior data"}</div>
   </div>
   <div class="card">
     <div class="card-label">All-Time</div>
@@ -91,7 +93,7 @@ ${error ? `<div class="error">⚠️ Data fetch error: ${error}</div>` : ""}
 </div>
 
 <div class="chart-card">
-  <div class="chart-title">12-Week Trend</div>
+  <div class="chart-title">Completed-Week Trend</div>
   <canvas id="chart" height="80"></canvas>
 </div>
 

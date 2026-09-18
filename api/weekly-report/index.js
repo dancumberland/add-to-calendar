@@ -166,7 +166,7 @@ async function sendSlackReport(report) {
     const count = String(w.total).padStart(countWidth);
     const isLatest = i === recent8.length - 1;
     const isLastWeek = i === recent8.length - 2;
-    const suffix = isLatest ? '  ← this week' : (isLastWeek ? '  ← last week' : '');
+    const suffix = isLatest ? '  ← latest full week' : (isLastWeek ? '  ← prior full week' : '');
     return `${padLabel(w.week)}  ${bar}  ${count}${suffix}`;
   }).join('\n');
 
@@ -194,7 +194,7 @@ async function sendSlackReport(report) {
         fields: [
           {
             type: 'mrkdwn',
-            text: `*Events This Week*\n${summary.thisWeekTotal}`,
+            text: `*Latest Full Week*\n${summary.thisWeekTotal}`,
           },
           {
             type: 'mrkdwn',
@@ -206,7 +206,7 @@ async function sendSlackReport(report) {
           },
           {
             type: 'mrkdwn',
-            text: `*Last Week*\n${summary.lastWeekTotal}`,
+            text: `*Prior Full Week*\n${summary.lastWeekTotal}`,
           },
         ],
       },

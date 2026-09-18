@@ -92,6 +92,7 @@ The midnight-UTC check is `hour === 0 && minute === 0 && second === 0`.
 ### Partial-week WoW is meaningless
 - **Bug**: Report compared current partial week (e.g. 2 days = 78 events) to last full week (7 days = 239), showing -67%. Completely artificial.
 - **Fix**: `generateWeeklyReport()` strips the current partial week. "This week" = last completed Mon-Sun. "Last week" = the one before. Always apples-to-apples.
+- **Dashboard parity (2026-09-18)**: The dashboard originally kept showing the current partial week, so its cards disagreed with Slack. It now strips the partial week too, and both surfaces label the periods "Latest Full Week" and "Prior Full Week."
 - **Rule**: Never compare partial periods to full periods in trend metrics.
 
 ### Unauthenticated endpoints WILL get hit
