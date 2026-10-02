@@ -10,7 +10,7 @@
     "uuid": "^9.0.1"
   },
   "scripts": {
-    "test": "node --test utils/dashboardPaging.test.js api/dashboard/dashboard.test.js",
+    "test": "node --test utils/dashboardPaging.test.js tests/dashboard.test.js",
     "send-weekly-report": "node scripts/send-weekly-report.js",
     "test-calendars": "node scripts/test-calendar-integrations.js"
   }

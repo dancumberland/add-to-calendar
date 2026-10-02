@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { getDashboardPageWindow } from "../../utils/dashboardPaging.js";
+import { getDashboardPageWindow } from "../utils/dashboardPaging.js";
 
 const fixtureSecret = "dashboard-test-key";
-const source = fs.readFileSync(new URL("./index.js", import.meta.url), "utf8")
+const source = fs.readFileSync(new URL("../api/dashboard/index.js", import.meta.url), "utf8")
   .replace('import { getWeeklyTrendPage, getAllTimeStats } from "../../utils/analytics.js";', "")
   .replace("export default async function handler", "async function handler");
 
