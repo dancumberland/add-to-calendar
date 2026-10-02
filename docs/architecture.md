@@ -121,6 +121,12 @@ Tracks usage metrics and generates weekly email reports. See [sessions/251129.13
 - `api/calendar-block/index.js` – Now calls `trackDailyUsage()` instead of inline `trackUsage()`
 - `api/weekly-report/index.js` – Refactored to use analytics functions
 
+### 3.4 Admin Dashboard History (2026-10-02)
+
+`/api/dashboard` supports 8-, 12-, 24-, and 52-week chart ranges. Pages move backward and forward by the selected range, and use completed UTC Monday-Sunday weeks to match the weekly report. The newest page excludes the in-progress week; older-page gaps are left blank when their weekly aggregate has expired rather than being shown as zero. The chart's summary cards always compare the two newest completed weeks.
+
+Weekly aggregate keys have an exact 31,536,000-second TTL from their write time; daily detail keys expire after 2,592,000 seconds. A weekly key may be written several days after its Sunday week-end, when aggregation runs. The dashboard can page back to the all-time first-event week, but expired aggregates cannot be reconstructed; those chart buckets are reported as unavailable. Authentication remains the existing `?secret=` query parameter. Range and page changes use GET navigations with the same auth query, and the response sets `Referrer-Policy: no-referrer` to avoid forwarding that URL to the Chart.js CDN.
+
 ## Nice-to-Have Enhancements (future)
 - Dashboard to view real-time metrics and historical trends
 - Data reconciliation for missed weeks

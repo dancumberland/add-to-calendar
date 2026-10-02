@@ -1,7 +1,7 @@
 # Session Index
 
-**Last Updated**: 2025-12-05 13:40
-**Total Sessions**: 10
+**Last Updated**: 2026-10-02
+**Total Sessions**: 11
 
 ---
 
@@ -16,6 +16,10 @@ When resuming work on this project:
 ---
 
 ## Sessions (Newest First)
+
+### [261002.0000 - Dashboard History Paging](./261002.0000-Dashboard-History-Paging.md)
+**Status**: ✅ IMPLEMENTATION COMPLETE
+Added selectable completed-week chart ranges and paging through available history; all 8 dependency-free tests pass. UI preview was blocked by the browser security policy and local listener sandbox.
 
 ### [251205.1340 - Analytics Tracking Fix](./251205.1340-Analytics-Tracking-Fix.md)
 **Status**: ✅ COMPLETE
@@ -133,4 +137,3 @@ Kit_App_Build/
 ---
 
 **Note**: Session files renamed 2025-11-29 to follow naming protocol: `YYMMDD.HHMM-Session_Name.md`
-

@@ -12,6 +12,7 @@
 
 import { kv } from "@vercel/kv";
 import { DateTime } from "luxon";
+import { getDashboardPageWindow } from "./dashboardPaging.js";
 
 // Track daily usage with event details
 // Note: Uses UTC for daily bucketing (see design decision above)
@@ -218,6 +219,50 @@ export async function getTwelveWeekTrend() {
     console.error('Error getting 12-week trend:', error);
     throw error;
   }
+}
+
+// Return a page of completed Mon-Sun weeks for the dashboard. Page 0 is the
+// newest page; increasing page numbers move backwards through retained history.
+// The all-time first-event date bounds navigation, while weekly aggregates are
+// preferred and recent daily data is used only when an aggregate is not ready.
+export async function getWeeklyTrendPage({ weeks = 12, page = 0, firstEvent = null } = {}) {
+  const now = DateTime.utc();
+  const window = getDashboardPageWindow({ now: now.toJSDate(), firstEvent, weeks, page });
+  const weeklyTotals = await Promise.all(window.weekRanges.map(async (range) => {
+    const weekEnd = DateTime.fromISO(range.weekEnd, { zone: 'utc' });
+    const weekStart = weekEnd.minus({ days: 6 });
+    let weekTotal = 0;
+    const weeklyKey = `usage:weekly:${weekEnd.toISODate()}`;
+    const weeklyData = await kv.get(weeklyKey);
+
+    if (weeklyData && Number.isFinite(Number(weeklyData.count))) {
+      weekTotal = Number(weeklyData.count);
+    } else if (weekStart >= now.minus({ days: 30 }).startOf('day')) {
+      // Daily records expire after 30 days, so this fallback only fills recent
+      // weeks when the weekly aggregation has not run yet.
+      const dayData = await Promise.all(Array.from({ length: 7 }, (_, dayOffset) => {
+        const date = weekStart.plus({ days: dayOffset }).toISODate();
+        return kv.get(`usage:daily:${date}`);
+      }));
+      weekTotal = dayData.reduce((sum, day) => sum + (Number(day?.count) || 0), 0);
+    } else {
+      // A missing old aggregate is not equivalent to zero: weekly keys expire
+      // after a year, so preserve the gap rather than implying no usage.
+      weekTotal = null;
+    }
+
+    return {
+      week: `${weekStart.toFormat('MMM d, yyyy')} – ${weekEnd.toFormat('MMM d, yyyy')}`,
+      total: weekTotal,
+      weekStart: weekStart.toISODate(),
+      weekEnd: weekEnd.toISODate(),
+    };
+  }));
+
+  return {
+    weeklyTotals,
+    ...window,
+  };
 }
 
 // Get all-time statistics
