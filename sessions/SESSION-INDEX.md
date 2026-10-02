@@ -18,8 +18,8 @@ When resuming work on this project:
 ## Sessions (Newest First)
 
 ### [261002.0000 - Dashboard History Paging](./261002.0000-Dashboard-History-Paging.md)
-**Status**: ✅ IMPLEMENTATION COMPLETE
-Added selectable completed-week chart ranges and paging through available history; all 8 dependency-free tests pass. UI preview was blocked by the browser security policy and local listener sandbox.
+**Status**: ✅ DEPLOYED
+Added selectable completed-week chart ranges and paging through available history. All 8 tests and fixture-browser checks pass; deployed to Vercel production.
 
 ### [251205.1340 - Analytics Tracking Fix](./251205.1340-Analytics-Tracking-Fix.md)
 **Status**: ✅ COMPLETE
