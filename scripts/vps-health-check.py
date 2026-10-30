@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 # Config
 # ---------------------------------------------------------------------------
 BASE_URL = "https://kit-app-build.vercel.app"
-SLACK_WEBHOOK_FILE = "/home/claude/dancumberlandlabs-content/.slack-webhook"
+SLACK_WEBHOOK_FILE = "/home/claude/.fleet/.systems-slack-webhook"
 REQUEST_TIMEOUT = 20  # seconds
 
 # ---------------------------------------------------------------------------
@@ -308,7 +308,7 @@ def get_slack_webhook():
         with open(SLACK_WEBHOOK_FILE) as f:
             return f.read().strip()
     except OSError:
-        return os.environ.get("SLACK_WEBHOOK_URL")
+        return os.environ.get("SYSTEMS_SLACK_WEBHOOK_URL")
 
 
 def build_slack_payload(results, total_ms):
@@ -394,9 +394,12 @@ def main():
     passed = sum(1 for r in results if r["passed"])
     print(f"\nResults: {passed}/{len(results)} passed ({total_ms}ms)")
 
-    payload = build_slack_payload(results, total_ms)
-    ok = send_slack(payload)
-    print("Slack notification sent." if ok else "Slack notification FAILED.")
+    if passed != len(results):
+        payload = build_slack_payload(results, total_ms)
+        ok = send_slack(payload)
+        print("Slack failure notification sent." if ok else "Slack notification FAILED.")
+    else:
+        print("All checks passed; Slack all-clear suppressed.")
 
     # Exit non-zero if any tests failed (so cron logs show the failure)
     sys.exit(0 if passed == len(results) else 1)
